@@ -1,0 +1,264 @@
+﻿// 文件说明：声明项目内使用的原生 GameplayTag。
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "NativeGameplayTags.h"
+
+namespace ActionGameplayTags
+{
+	/** 基础输入标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Move);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_Look);
+
+	/** 战斗输入标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Light);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Heavy);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_DodgeCounter);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Sprint);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Airborne);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_CombatModeOrDefense);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Dodge);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Execution);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_LockTarget);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_ProjectileSwitch);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_SpiritSkill1);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_SpiritSkill2);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_SpiritSkill3);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_SpiritSkill4);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_WeaponSwitch);
+
+	/**
+	 * 槽位专属战斗输入标签。
+	 * 设计目的：
+	 * 1. 固定武器槽的战斗 GA 会在初始化时授予，并常驻在 ASC 中；
+	 * 2. 因此同一种通用输入不能再让多个槽位 GA 共享，否则会出现多个能力争抢同一个输入标签；
+	 * 3. 解决方式就是把 Attack / Dodge / CombatModeOrDefense 细化成“按槽位区分”的输入标签，
+	 *    再由战斗组件在真正转发给 ASC 前，按当前已装备槽位做一次显式路由。
+	 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Light_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Light_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Light_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Light_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Heavy_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Heavy_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Heavy_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Heavy_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_DodgeCounter_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_DodgeCounter_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_DodgeCounter_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_DodgeCounter_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Sprint_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Sprint_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Sprint_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Sprint_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Airborne_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Airborne_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Airborne_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Attack_Airborne_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Dodge_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Dodge_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Dodge_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_Dodge_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_CombatModeOrDefense_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_CombatModeOrDefense_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_CombatModeOrDefense_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_CombatModeOrDefense_Hybrid);
+
+	/**
+	 * 固定武器槽输入标签。
+	 * 说明：
+	 * 1. 这四个标签分别对应空手槽、近战槽、远程槽、混合槽；
+	 * 2. 其中常见键位概念可以映射为 1 / 2 / 3 / 4，也可以由后续输入资产自行调整；
+	 * 3. 当前 C++ 只提供手动切槽框架，真正的按键映射仍需在输入配置资产中挂上。
+	 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_WeaponSlot_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_WeaponSlot_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_WeaponSlot_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(InputTag_GameplayAbility_WeaponSlot_Hybrid);
+
+	/** 自动触发技能标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayAbility_Given);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(GameplayAbility_Triggered_ChangeCombatMode);
+
+	/** 通用战斗事件标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_IncomingAttack);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_HitReact);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_HeavyHitReact);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_GuardBreak);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_PoiseBreak);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_Launch);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_Knockdown);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_ExecutionWindow_Open);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_ExecutionWindow_Close);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Combat_Event_Execution_Triggered);
+
+	/** 通用战斗状态标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_ExecutionInvulnerable);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_ExecutionVictimLocked);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_ExecutionVictim_HardLock);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_HitStun_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_HeavyHitReact_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_GuardBreak_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_PoiseBreak_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_Launch_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_Knockdown_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_SuperArmor_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_Defense_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_ParryWindow_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_Parry_Success);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_Dodge_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_PerfectDodge_Success);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Combat_DodgeCounter_Ready);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ability_Attack_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ability_Defense_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ability_Dodge_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ability_Execution_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ability_SpiritSkill_Active);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Ability_WeaponSwitch_Active);
+
+	/** 攻击请求与攻击分支标签。 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Request_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Request_Held);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Request_DodgeCounter);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Request_Sprint);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Request_Airborne);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Branch_Light);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Branch_Heavy);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Branch_DodgeCounter);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Branch_Sprint);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Attack_Branch_Airborne);
+
+	/** 元素伤害标签。主要服务元素武器 DamageElementTypeTag 和后续表现语义。 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Element);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Element_Fire);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Element_Water);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Element_Earth);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Element_Thunder);
+
+	/** 状态效果标签。既服务运行时判定，也服务后续 UI 状态栏展示。 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_SuperArmor);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_Defense);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_ExecutionInvulnerable);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_ExecutionVictimLocked);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_ExecutionVictimHardLock);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_HitStun);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_HeavyHitReact);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_GuardBreak);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_PoiseBreak);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_Launch);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_Knockdown);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_ParryWindow);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_ParrySuccess);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_Dodge);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_PerfectDodgeSuccess);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_Combat_DodgeCounterReady);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_DamageOverTime);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_DamageOverTime_Burn);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_DamageOverTime_Poison);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(StatusEffect_DamageOverTime_Bleed);
+
+	/** 玩家武器标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Unarmed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Unarmed_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Sword);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Sword_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Blade);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Blade_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Spear);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Spear_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Scythe);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Melee_Scythe_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged_Staff);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged_Staff_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged_Bow);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged_Bow_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged_Gun);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Ranged_Gun_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Sword);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Sword_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Blade);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Blade_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Spear);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Spear_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Staff);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Staff_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Bow);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Bow_Default);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Gun);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Weapon_Hybrid_Gun_Default);
+
+	/** 玩家战斗事件标签。*/
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Equip);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Unequip);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_WeaponSwitch_Begin);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_WeaponSwitch_End);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_WeaponSwitch_Special);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Execution_Begin);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Execution_Hit);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Execution_End);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Execution_Cancelled);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_InputBuffered);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_InputBuffer_Consumed);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Defense_Begin);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Defense_End);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Defense_Blocked);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_ParryWindow_Open);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_ParryWindow_Close);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Parry_Success);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Dodge_Begin);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_Dodge_End);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_PerfectDodgeWindow_Open);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_PerfectDodgeWindow_Close);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_PerfectDodge_Success);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_DodgeCounter_Available);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Event_DodgeCounter_Consumed);
+
+	/** 通用冷却与受击结算使用的 SetByCaller 参数标签。 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Cooldown_Duration);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Effect_Duration);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Effect_Period);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Damage_Health);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Cost_GuardStamina);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Damage_Poise);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Damage_ExecutionMultiplier);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Damage_IgnoreFinalDamageReductionPercent);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Attribute_DamageVulnerability);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Attribute_HealthDamageResistance);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Attribute_GuardStaminaCostResistance);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Attribute_PoiseDamageResistance);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Attribute_ExecutionDamageMultiplier);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Ability_WeaponSwitch);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Ability_SpiritSkill1);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Ability_SpiritSkill2);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Ability_SpiritSkill3);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Ability_SpiritSkill4);
+
+	/** GA 的能力标签，用于配置能力之间的打断与阻塞关系。 */
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Attack);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Attack_Light);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Attack_Heavy);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Attack_DodgeCounter);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Attack_Sprint);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Attack_Airborne);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_CombatModeOrDefense);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Dodge);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_Execution);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_ProjectileSwitch);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_SpiritSkill);
+	ACTIONRPG_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Player_Ability_WeaponSwitch);
+
+	/** Spirit 主动技能输入工具接口。 */
+	ACTIONRPG_API bool IsSpiritSkillInputTag(const FGameplayTag& InputTag);
+	ACTIONRPG_API FGameplayTag ResolveSpiritSkillCooldownTag(const FGameplayTag& InputTag);
+
+	/** 通过字符串查找 GameplayTag，主要用于调试。*/
+	ACTIONRPG_API FGameplayTag FindTagByString(const FString& TagString, bool bMatchPartialString = false);
+}

@@ -1,0 +1,31 @@
+# Unreal Engine generated files
+Binaries/
+Build/*/FileOpenOrder/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Visual Studio / Rider
+.vs/
+*.VC.db
+*.VC.opendb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Logs and dumps
+*.log
+*.dmp
+
+# Python virtual environments
+.venv/
+venv/
+
+# Local tooling and personal outputs
+.cache/
+.codex/
+.publish_main/
+outputs/
+tmp/
+Resume/

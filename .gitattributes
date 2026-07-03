@@ -1,0 +1,20 @@
+﻿*.uasset filter=lfs diff=lfs merge=lfs -text
+*.umap filter=lfs diff=lfs merge=lfs -text
+*.h text eol=crlf
+*.hpp text eol=crlf
+*.c text eol=crlf
+*.cc text eol=crlf
+*.cpp text eol=crlf
+*.inl text eol=crlf
+*.cs text eol=crlf
+*.md text eol=crlf
+*.txt text eol=crlf
+*.ini text eol=crlf
+*.uproject text eol=crlf
+*.uplugin text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+.editorconfig text eol=crlf
+.gitattributes text eol=crlf
+.gitignore text eol=crlf

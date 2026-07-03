@@ -1,0 +1,15 @@
+﻿// 文件说明：配置 ActionRPGEditor.Target 构建目标。
+
+using UnrealBuildTool;
+using System.Collections.Generic;
+
+public class ActionRPGEditorTarget : TargetRules
+{
+	public ActionRPGEditorTarget( TargetInfo Target) : base(Target)
+	{
+		Type = TargetType.Editor;
+		DefaultBuildSettings = BuildSettingsVersion.V5;
+		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_4;
+		ExtraModuleNames.Add("ActionRPG");
+	}
+}
