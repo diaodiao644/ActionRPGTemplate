@@ -5,6 +5,7 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "ActionGameplayTags.h"
 #include "AbilitySystem/ActionAbilitySystemComponent.h"
+#include "Animation/AnimMontage.h"
 #include "Characters/ActionHeroCharacter.h"
 #include "Components/Combat/HeroAttackComponent.h"
 #include "Components/Combat/ActionCombatReactComponent.h"
@@ -267,7 +268,7 @@ FString UActionHeroGameplayAbility::DescribeCurrentCombatReactDebug() const
 	DebugLines.Add(DescribeCombatReactActivationDecision(CombatReactComponent));
 	DebugLines.Add(DescribeCombatReactInterruptDecision(CombatReactComponent));
 
-	const FGameplayTag DebugInputTag = ResolveHeroAbilityCombatReactInputTag(this);
+	const FGameplayTag DebugInputTag = GetPrimaryInputTagForCombatReact();
 	if (HeroCombatComponent && DebugInputTag.IsValid())
 	{
 		DebugLines.Add(HeroCombatComponent->DescribeNonAttackInputGateForDebug(DebugInputTag));
@@ -301,11 +302,14 @@ bool UActionHeroGameplayAbility::PlayHeroMontage(UAnimMontage* InMontage, const 
 	// 子类只关心“这是攻击蒙太奇还是切武蒙太奇”，不需要再自己维护一套任务绑定。
 	ActiveMontageContext = MontageContext;
 	ActiveMontageTask = MontageTask;
+	ActiveHeroMontageAsset = InMontage;
 	// 共享基类把任务和上下文都记录下来，
 	// 这样子类只需要实现“这个上下文完成后我该做什么”，不用自己重复维护任务句柄。
 	// 这也是为什么攻击、闪避、防御、处决都能复用同一套蒙太奇回调签名，
 	// 但仍然能区分“当前到底是哪一段蒙太奇”。
 
+	// 共享基类统一接住 AbilityTask 的四类正式回调，再按 ActiveMontageContext 分发给子类。
+	// 这里绑定的是“这次 AT 返回了什么结果”，不是新的长期业务状态源。
 	MontageTask->OnCompleted.AddDynamic(this, &UActionHeroGameplayAbility::HandleSharedMontageCompleted);
 	MontageTask->OnBlendOut.AddDynamic(this, &UActionHeroGameplayAbility::HandleSharedMontageBlendOut);
 	MontageTask->OnInterrupted.AddDynamic(this, &UActionHeroGameplayAbility::HandleSharedMontageInterrupted);
@@ -325,6 +329,7 @@ bool UActionHeroGameplayAbility::StopActiveHeroMontageTaskAndCurrentMontage(
 	if (UAbilityTask_PlayMontageAndWait* MontageTask = ActiveMontageTask.Get())
 	{
 		// 立即切段前先拆掉旧段共享任务的回调，避免旧蒙太奇停播时把回调继续分发回当前 Ability。
+		// 这一步只做共享 AbilityTask 解绑与旧回调清理，不重建第二套蒙太奇运行态。
 		MontageTask->OnCompleted.Clear();
 		MontageTask->OnBlendOut.Clear();
 		MontageTask->OnInterrupted.Clear();
@@ -332,6 +337,8 @@ bool UActionHeroGameplayAbility::StopActiveHeroMontageTaskAndCurrentMontage(
 		MontageTask->EndTask();
 		ActiveMontageTask = nullptr;
 	}
+
+	ActiveHeroMontageAsset = nullptr;
 
 	bool bStoppedCurrentMontage = false;
 	if (CurrentRunningMontage)
@@ -389,6 +396,28 @@ void UActionHeroGameplayAbility::RequestHeroBufferedInputConsumeNextTick()
 	}
 }
 
+UAnimMontage* UActionHeroGameplayAbility::GetCurrentHeroMontageAsset() const
+{
+	return ActiveHeroMontageAsset.Get();
+}
+
+FGameplayAbilitySpecHandle UActionHeroGameplayAbility::GetCurrentHeroAbilitySpecHandle() const
+{
+	return CurrentSpecHandle;
+}
+
+bool UActionHeroGameplayAbility::OwnsHeroMontage(const UAnimMontage* InMontage) const
+{
+	return InMontage != nullptr && ActiveHeroMontageAsset.Get() == InMontage;
+}
+
+void UActionHeroGameplayAbility::GetPredictedOwnedTagsToReleaseOnRelationshipCancel(
+	FGameplayTagContainer& OutOwnedTags) const
+{
+	Super::GetPredictedOwnedTagsToReleaseOnRelationshipCancel(OutOwnedTags);
+	OutOwnedTags.AppendTags(ActiveHeroCombatModifierGrantedTags);
+}
+
 bool UActionHeroGameplayAbility::ApplyHeroCombatModifierEffect(const FActionCombatModifierEffectSpec& EffectSpec)
 {
 	UActionAbilitySystemComponent* ActionAbilitySystemComponent = GetActionAbilitySystemComponentFromActorInfo();
@@ -413,6 +442,7 @@ bool UActionHeroGameplayAbility::ApplyHeroCombatModifierEffect(const FActionComb
 	// 这也意味着子类如果想做“跨 Ability 持续保留”的效果，就不该走这个入口，
 	// 否则会在当前 Ability 结束时被基类自动回收。
 	ActiveHeroCombatModifierEffectHandles.Add(EffectHandle);
+	ActiveHeroCombatModifierGrantedTags.AppendTags(EffectSpec.GrantedTags);
 	return true;
 }
 
@@ -493,6 +523,7 @@ void UActionHeroGameplayAbility::ClearHeroCombatModifierEffects()
 	// 无论 ASC 当前是否还存在，本地句柄数组都应清空。
 	// 否则下一次激活同一实例时，会把上一轮生命周期的效果句柄误认为仍然归自己管理。
 	ActiveHeroCombatModifierEffectHandles.Reset();
+	ActiveHeroCombatModifierGrantedTags.Reset();
 }
 
 void UActionHeroGameplayAbility::HandleSharedMontageCompleted()
@@ -501,22 +532,26 @@ void UActionHeroGameplayAbility::HandleSharedMontageCompleted()
 	// 基类不关心这是攻击、闪避还是切武蒙太奇，只负责把统一事件翻译成带上下文的回调。
 	// 这种“基类做任务绑定，子类做业务分支”的结构，能明显减少各条 GA 链的重复样板代码。
 	OnHeroMontageCompleted(ActiveMontageContext);
+	ActiveHeroMontageAsset = nullptr;
 }
 
 void UActionHeroGameplayAbility::HandleSharedMontageBlendOut()
 {
 	// BlendOut 也走同一套上下文分发，避免不同 Ability 各自维护绑定表。
 	OnHeroMontageBlendOut(ActiveMontageContext);
+	ActiveHeroMontageAsset = nullptr;
 }
 
 void UActionHeroGameplayAbility::HandleSharedMontageInterrupted()
 {
 	// Interrupted 与 Cancelled 分开发，是为了保留子类区分“被外部打断”和“主动取消”的机会。
 	OnHeroMontageInterrupted(ActiveMontageContext);
+	ActiveHeroMontageAsset = nullptr;
 }
 
 void UActionHeroGameplayAbility::HandleSharedMontageCancelled()
 {
 	// 这里同样继续转发上下文，保证子类即使共用同一套回调入口也能知道是哪段蒙太奇被取消。
 	OnHeroMontageCancelled(ActiveMontageContext);
+	ActiveHeroMontageAsset = nullptr;
 }

@@ -2,6 +2,7 @@
 
 #include "DataAssets/Loadout/DataAsset_HeroLoadoutData.h"
 
+#include "AbilitySystem/ActionAbilityCategoryValidation.h"
 #include "AbilitySystem/Abilities/Hero/HeroGA_AttackHybrid.h"
 #include "AbilitySystem/Abilities/Hero/HeroGA_AttackMelee.h"
 #include "AbilitySystem/Abilities/Hero/HeroGA_AttackRanged.h"
@@ -201,6 +202,64 @@ namespace HeroLoadoutDataEditor
 		}
 	}
 
+	static void ValidateHeroCombatAbilityCategory(
+		const TSubclassOf<UGameplayAbility>& InAbilityClass,
+		const FString& InContextText,
+		TArray<FString>& OutLines)
+	{
+		if (!InAbilityClass)
+		{
+			return;
+		}
+
+		const FActionHeroCombatAbilityCategoryValidationResult ValidationResult =
+			BuildActionHeroCombatAbilityCategoryValidationResult(InAbilityClass);
+		if (!ValidationResult.bIsHeroCombatRelationshipAbility || ValidationResult.bPassed)
+		{
+			return;
+		}
+
+		AppendLine(
+			OutLines,
+			FString::Printf(
+				TEXT("[错误] %s 引用的 Hero 主动战斗 GA 类别配置非法。Ability=%s Identity=%s MatchedTopLevelIdentity=%s AdditionalPlayerAbilityTags=%s Category=%s HasBlueprintCanActivateOverride=%s CategoryAudit=%s Reason=%s"),
+				*InContextText,
+				*GetNameSafe(InAbilityClass),
+				*DescribeActionAbilityValidationGameplayTags(ValidationResult.IdentityTags),
+				*DescribeActionAbilityValidationGameplayTags(
+					ValidationResult.CategoryAuditResult.MatchedTopLevelIdentityTags),
+				*DescribeActionAbilityValidationGameplayTags(
+					ValidationResult.CategoryAuditResult.AdditionalPlayerAbilityTags),
+				*ActionAbilityCategoryToString(ValidationResult.AbilityCategory),
+				ValidationResult.bHasBlueprintCanActivateOverride ? TEXT("Yes") : TEXT("No"),
+				*ValidationResult.AuditState,
+				ValidationResult.FailureReason.IsEmpty() ? TEXT("Unknown") : *ValidationResult.FailureReason));
+	}
+
+	static void ValidateHeroCombatAbilityCategoryArray(
+		const TArray<FActionAbilitySet>& InAbilitySets,
+		const FString& InContextText,
+		TArray<FString>& OutLines)
+	{
+		for (int32 AbilityIndex = 0; AbilityIndex < InAbilitySets.Num(); ++AbilityIndex)
+		{
+			const FActionAbilitySet& AbilitySet = InAbilitySets[AbilityIndex];
+			if (!AbilitySet.AbilityToGrant)
+			{
+				continue;
+			}
+
+			ValidateHeroCombatAbilityCategory(
+				AbilitySet.AbilityToGrant,
+				FString::Printf(
+					TEXT("%s 第 %d 项（Input=%s）"),
+					*InContextText,
+					AbilityIndex,
+					AbilitySet.InputTag.IsValid() ? *AbilitySet.InputTag.ToString() : TEXT("None")),
+				OutLines);
+		}
+	}
+
 	static bool HasAbilityInputTag(
 		const TArray<FActionAbilitySet>& InAbilitySets,
 		const FGameplayTag& InInputTag)
@@ -240,6 +299,50 @@ namespace HeroLoadoutDataEditor
 		{
 			AppendLine(OutLines, FString::Printf(TEXT("[错误] %s 未配置空中攻击能力。"), *InContextText));
 		}
+	}
+
+	static void ValidateAttackAbilityCategory(
+		const TSubclassOf<UGameplayAbility>& InAbilityClass,
+		const TCHAR* InFieldName,
+		const FString& InContextText,
+		TArray<FString>& OutLines)
+	{
+		ValidateHeroCombatAbilityCategory(
+			InAbilityClass,
+			FString::Printf(TEXT("%s.%s"), *InContextText, InFieldName),
+			OutLines);
+	}
+
+	static void ValidateAttackAbilityCategories(
+		const FHeroLoadoutAttackAbilityConfig& InAttackAbilities,
+		const FString& InContextText,
+		TArray<FString>& OutLines)
+	{
+		ValidateAttackAbilityCategory(
+			InAttackAbilities.LightAttackAbility,
+			TEXT("LightAttackAbility"),
+			InContextText,
+			OutLines);
+		ValidateAttackAbilityCategory(
+			InAttackAbilities.HeavyAttackAbility,
+			TEXT("HeavyAttackAbility"),
+			InContextText,
+			OutLines);
+		ValidateAttackAbilityCategory(
+			InAttackAbilities.DodgeCounterAttackAbility,
+			TEXT("DodgeCounterAttackAbility"),
+			InContextText,
+			OutLines);
+		ValidateAttackAbilityCategory(
+			InAttackAbilities.SprintAttackAbility,
+			TEXT("SprintAttackAbility"),
+			InContextText,
+			OutLines);
+		ValidateAttackAbilityCategory(
+			InAttackAbilities.AirborneAttackAbility,
+			TEXT("AirborneAttackAbility"),
+			InContextText,
+			OutLines);
 	}
 
 	static void ValidateExpectedAbilityClass(
@@ -544,8 +647,20 @@ FString UDataAsset_HeroLoadoutData::BuildLoadoutValidationReport() const
 	// 先统一检查三组全局能力数组，再继续下钻固定四槽。
 	// 校验报告只服务编辑器整理与资产回读，不替代运行时正式资格判定。
 	HeroLoadoutDataEditor::ValidateAbilityArray(ActivateOnGivenAbilities, TEXT("ActivateOnGivenAbilities"), ValidationLines);
+	HeroLoadoutDataEditor::ValidateHeroCombatAbilityCategoryArray(
+		ActivateOnGivenAbilities,
+		TEXT("ActivateOnGivenAbilities"),
+		ValidationLines);
 	HeroLoadoutDataEditor::ValidateAbilityArray(ReactiveAbilities, TEXT("ReactiveAbilities"), ValidationLines);
+	HeroLoadoutDataEditor::ValidateHeroCombatAbilityCategoryArray(
+		ReactiveAbilities,
+		TEXT("ReactiveAbilities"),
+		ValidationLines);
 	HeroLoadoutDataEditor::ValidateAbilityArray(PersistentInputAbilities, TEXT("PersistentInputAbilities"), ValidationLines);
+	HeroLoadoutDataEditor::ValidateHeroCombatAbilityCategoryArray(
+		PersistentInputAbilities,
+		TEXT("PersistentInputAbilities"),
+		ValidationLines);
 
 	const EHeroWeaponLoadoutSlot ExpectedSlots[] =
 	{
@@ -593,6 +708,10 @@ FString UDataAsset_HeroLoadoutData::BuildLoadoutValidationReport() const
 			WeaponLoadoutDefinition.AttackAbilities,
 			SlotContextText,
 			ValidationLines);
+		HeroLoadoutDataEditor::ValidateAttackAbilityCategories(
+			WeaponLoadoutDefinition.AttackAbilities,
+			SlotContextText,
+			ValidationLines);
 		HeroLoadoutDataEditor::ValidateRecommendedAttackAbilityTypes(
 			WeaponLoadoutDefinition.LoadoutSlot,
 			WeaponLoadoutDefinition.AttackAbilities,
@@ -600,6 +719,10 @@ FString UDataAsset_HeroLoadoutData::BuildLoadoutValidationReport() const
 			ValidationLines);
 
 		HeroLoadoutDataEditor::ValidateAbilityArray(
+			WeaponLoadoutDefinition.AdditionalGrantedAbilities,
+			FString::Printf(TEXT("%s.AdditionalGrantedAbilities"), *SlotContextText),
+			ValidationLines);
+		HeroLoadoutDataEditor::ValidateHeroCombatAbilityCategoryArray(
 			WeaponLoadoutDefinition.AdditionalGrantedAbilities,
 			FString::Printf(TEXT("%s.AdditionalGrantedAbilities"), *SlotContextText),
 			ValidationLines);

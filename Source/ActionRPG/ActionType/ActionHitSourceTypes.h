@@ -9,7 +9,8 @@ class AActor;
 
 /**
  * 命中来源类型的公共业务语义。
- * 这一层只回答“本次命中究竟来自哪里”，不直接代表某个组件当前是否已激活这类来源。
+ * 这一层只回答“本次命中究竟来自哪里”，不直接代表某个组件当前是否已激活这类来源，
+ * 也不替代运行时正式使用的 SourceId / GroupId。
  */
 UENUM(BlueprintType)
 enum class EActionHitSourceType : uint8
@@ -84,7 +85,7 @@ enum class EActionHitWindowResolvePolicy : uint8
 
 namespace ActionHitSourceDefaults
 {
-	/** 把配置层命中源枚举翻译成运行时正式使用的 SourceId 名字。 */
+	/** 把配置层命中源枚举翻译成运行时正式使用的 SourceId 名字。它只做命名桥接，不生成新的命中源状态。 */
 	inline FName ResolveHitSourceIdName(const EActionHitSourceId InId)
 	{
 		switch (InId)
@@ -128,7 +129,7 @@ namespace ActionHitSourceDefaults
 		}
 	}
 
-	/** 把配置层命中源组枚举翻译成运行时正式使用的 GroupId 名字。 */
+	/** 把配置层命中源组枚举翻译成运行时正式使用的 GroupId 名字。它同样只做命名桥接。 */
 	inline FName ResolveHitSourceGroupIdName(const EActionHitSourceGroupId InId)
 	{
 		switch (InId)
@@ -308,19 +309,19 @@ struct FActionHitSourceDefinition
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "单个命中源定义的唯一 Id。命中窗口和来源组最终都通过它引用该命中源；这里填的是配置层正式入口，不是运行时临时生成值。"))
 	FName SourceId = NAME_None;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "这个命中源的正式类型，例如武器碰撞、角色体、范围点位或其它来源。"))
 	EActionHitSourceType SourceType = EActionHitSourceType::None;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "这个命中源的语义标签。它主要服务调试、分类和运行时来源描述。"))
 	FGameplayTag SourceTag;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "命中源绑定到的组件名。只有这类来源确实依赖某个特定组件时才需要填写；留空表示运行时按来源默认宿主解析。"))
 	FName SourceComponentName = NAME_None;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "命中源绑定到的 Socket 名。只有这类来源确实依赖某个骨骼或挂点时才需要填写；留空表示不额外用 Socket 定位。"))
 	FName SourceSocketName = NAME_None;
 
 	/** 只校验定义模板自身是否具备最小合法入口，不推进运行时注册或结算。 */
@@ -340,10 +341,10 @@ struct FActionHitSourceGroupDefinition
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "命中源组的唯一 Id。命中窗口可通过它一次启用多个命中源；这里仍是配置层入口，不替代运行时 GroupId 快照。"))
 	FName GroupId = NAME_None;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "这个命中源组包含的 SourceId 列表。留空或只填无效成员时，这个来源组本身不成立。"))
 	TArray<FName> SourceIds;
 
 	/** 只校验这份来源组模板自身是否成立。 */
@@ -365,39 +366,39 @@ struct FActionHitSourceInfo
 
 public:
 	/** 当前命中来源的运行时唯一名。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "当前命中来源的运行时唯一名。它是本次正式命中结果快照，不是资产层 SourceId 入口。"))
 	FName SourceId = NAME_None;
 
 	/** 当前真正造成命中的来源类型。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "当前真正造成命中的来源类型。它描述的是这次命中结果，而不是某个来源模板是否已配置。"))
 	EActionHitSourceType SourceType = EActionHitSourceType::None;
 
 	/** 当前命中来源的语义标签。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "当前命中来源的语义标签。它只服务命中结果描述、日志和表现消费，不是新的资产入口。"))
 	FGameplayTag SourceTag;
 
 	/** 若当前来源由上一层来源派生而来，这里记录上一层来源类型。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "若当前来源由上一层来源派生而来，这里记录上一层来源类型，例如发射物继承自武器或角色。"))
 	EActionHitSourceType ParentSourceType = EActionHitSourceType::None;
 
 	/** 若当前来源由上一层来源派生而来，这里记录上一层来源语义标签。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "若当前来源由上一层来源派生而来，这里记录上一层来源语义标签。"))
 	FGameplayTag ParentSourceTag;
 
 	/** 命中时所属的武器标签快照。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "命中时所属的武器标签快照。它只服务本次命中结果描述，不回写武器定义。"))
 	FGameplayTag WeaponTag;
 
 	/** 命中时所属的固定武器槽快照。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "命中时所属的固定武器槽快照。它只服务运行时结果描述和调试。"))
 	EHeroWeaponLoadoutSlot LoadoutSlot = EHeroWeaponLoadoutSlot::Invalid;
 
 	/** 本次命中来源组件名。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "本次命中来源组件名。它是运行时命中结果快照，不是资产作者常驻维护入口。"))
 	FName SourceComponentName = NAME_None;
 
 	/** 本次命中来源使用的 Socket 名。 */
-	UPROPERTY(BlueprintReadWrite, Category = "HitSource")
+	UPROPERTY(BlueprintReadWrite, Category = "HitSource", meta = (ToolTip = "本次命中来源使用的 Socket 名。它是运行时命中结果快照，不是新的资产入口。"))
 	FName SourceSocketName = NAME_None;
 
 	/** 只判断这次命中实例是否已经形成有效来源语义，不代表命中一定成功结算。 */
@@ -417,6 +418,7 @@ public:
  * 命中窗口层的正式运行时配置。
  * 它把窗口名、启用来源、结算策略和重复间隔统一打包，
  * 供命中窗口通知、命中源组件和武器命中体共用。
+ * 它回答的是“本次窗口该怎么开”，不是长期命中状态源。
  */
 USTRUCT(BlueprintType)
 struct FActionHitWindowRuntimeConfig
@@ -424,35 +426,35 @@ struct FActionHitWindowRuntimeConfig
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ToolTip = "命中窗口的运行时名字。它用于区分当前到底是哪一个窗口实例在工作。"))
 	FName WindowName = NAME_None;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ToolTip = "当前窗口是否同时使用武器碰撞检测。关闭后只消费显式启用的命中源或来源组。"))
 	bool bUseWeaponCollisionDetection = true;
 
 	/** 运行时是否已解析到应启用的正式 SourceId 名字集合，而不是配置层枚举。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ToolTip = "当前窗口已解析到应启用的正式 SourceId 名字集合。它是运行时结果，不再回头读取配置层枚举。"))
 	TArray<FName> EnabledHitSourceIds;
 
 	/** 运行时是否已解析到应启用的正式 GroupId 名字集合，而不是配置层枚举。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ToolTip = "当前窗口已解析到应启用的正式 GroupId 名字集合。它同样是运行时结果，不再回头读取配置层枚举。"))
 	TArray<FName> EnabledHitSourceGroupIds;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ToolTip = "当前窗口内同一来源对同一目标的结算策略。它只决定重复结算方式，不负责伤害数值本身。"))
 	EActionHitWindowResolvePolicy ResolvePolicy = EActionHitWindowResolvePolicy::SingleHitPerSourceTarget;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ClampMin = "0.01", EditCondition = "ResolvePolicy == EActionHitWindowResolvePolicy::IntervalWhileOverlapping", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow", meta = (ClampMin = "0.01", UIMin = "0.01", EditCondition = "ResolvePolicy == EActionHitWindowResolvePolicy::IntervalWhileOverlapping", EditConditionHides, ToolTip = "持续接触重复结算时，两次结算之间的最小间隔。只在 ResolvePolicy 选择 IntervalWhileOverlapping 时可配置。"))
 	float RepeatResolveInterval = 0.2f;
 
 	/** 当前窗口是否显式覆写默认命中配置里的击退强度。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow|Hit")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow|Hit", meta = (ToolTip = "当前窗口是否显式覆写默认命中配置里的击退强度。关闭时继续沿用上层 HitConfig 或模板里的正式击退配置。"))
 	bool bOverrideKnockbackStrength = false;
 
 	/** 当窗口显式覆写击退时，本窗口最终使用的击退强度。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow|Hit", meta = (ClampMin = "0.0", EditCondition = "bOverrideKnockbackStrength", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitWindow|Hit", meta = (ClampMin = "0.0", UIMin = "0.0", EditCondition = "bOverrideKnockbackStrength", EditConditionHides, ToolTip = "当窗口显式覆写击退时，本窗口最终使用的击退强度。只在 bOverrideKnockbackStrength 为 true 时可配置。"))
 	float OverrideKnockbackStrength = 0.f;
 
-	/** 只回答当前窗口是否按持续接触重复结算，不承担接触状态生命周期宿主。 */
+	/** 只回答当前窗口是否按持续接触重复结算，不承担接触状态生命周期宿主，也不表示当前一定已经存在重复接触记录。 */
 	bool UsesIntervalWhileOverlapping() const
 	{
 		return ResolvePolicy == EActionHitWindowResolvePolicy::IntervalWhileOverlapping
@@ -463,7 +465,7 @@ public:
 /**
  * 单个命中源与单个目标之间的持续接触状态壳。
  * 它只服务 IntervalWhileOverlapping 这类窗口重复结算策略，
- * 不是通用命中历史，也不是解析器的全局状态源。
+ * 不是通用命中历史，也不是解析器的全局状态源或最终命中结果。
  */
 USTRUCT()
 struct FActionActiveHitContactState

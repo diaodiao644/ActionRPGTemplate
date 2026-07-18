@@ -367,14 +367,6 @@ bool UHeroEquipmentComponent::EquipWeaponByLoadoutSlot(const EHeroWeaponLoadoutS
 	}
 
 	UHeroLoadoutRuntimeComponent* LoadoutRuntimeComponent = GetOwningHeroLoadoutRuntimeComponent();
-	const int32 CurrentLoadRevision = LoadoutRuntimeComponent
-		? LoadoutRuntimeComponent->GetLoadoutSlotLoadRevision(InLoadoutSlot)
-		: INDEX_NONE;
-	if (LoadoutRuntimeComponent)
-	{
-		LoadoutRuntimeComponent->SetPendingEquipWhenReadyRequest(InLoadoutSlot, CurrentLoadRevision);
-	}
-
 	const UDataAsset_WeaponDefinition* LoadedWeaponDefinition = LoadoutRuntimeComponent
 		? LoadoutRuntimeComponent->GetLoadedWeaponDefinitionByLoadoutSlot(InLoadoutSlot)
 		: nullptr;
@@ -403,42 +395,44 @@ bool UHeroEquipmentComponent::EquipWeaponByLoadoutSlot(const EHeroWeaponLoadoutS
 
 	if (!RuntimeState->HasAssignedWeaponDefinition())
 	{
-		// 当前槽位根本没有配置武器定义时，不存在后续异步链可继续完成这次装备请求。
+		// 当前槽位根本没有配置武器定义时，本次同步切武直接失败。
 		return false;
 	}
 
-	// 玩家已经明确手动请求切到这个槽位；如果资源还没准备好，就把请求暂存到异步链结束时再补完成。
-	if (!LoadedWeaponDefinition)
+	if (!LoadoutRuntimeComponent || !LoadedWeaponDefinition)
 	{
-		if (LoadoutRuntimeComponent)
-		{
-			LoadoutRuntimeComponent->RequestLoadoutSlotDefinitionAsync(InLoadoutSlot, true, CurrentLoadRevision);
-		}
-		// 这里表示“切武请求已被接受，但需要等定义加载完成后再真正落装备态”。
-		return true;
+		UE_LOG(
+			LogHeroEquipmentComponent,
+			Warning,
+			TEXT("[WeaponSwitch] 同步切武失败：目标槽位定义未就绪。槽位=%s"),
+			*HeroEquipmentComponentLog::GetWeaponLoadoutSlotName(InLoadoutSlot));
+		return false;
 	}
 
-	if (!UActionAssetManager::Get().AreWeaponRuntimeAssetsReady(LoadedWeaponDefinition))
+	if (!LoadoutRuntimeComponent->IsLoadoutSlotRuntimeReady(InLoadoutSlot))
 	{
-		if (LoadoutRuntimeComponent)
-		{
-			LoadoutRuntimeComponent->RequestLoadoutSlotRuntimeAssetsAsync(
-				InLoadoutSlot,
-				const_cast<UDataAsset_WeaponDefinition*>(LoadedWeaponDefinition),
-				true,
-				CurrentLoadRevision);
-		}
-		// 这里表示“切武请求已被接受，但需要等运行时资源预热完成后再真正落装备态”。
-		return true;
+		UE_LOG(
+			LogHeroEquipmentComponent,
+			Warning,
+			TEXT("[WeaponSwitch] 同步切武失败：目标槽位 runtime 未 ready。槽位=%s WeaponTag=%s Reason=%s"),
+			*HeroEquipmentComponentLog::GetWeaponLoadoutSlotName(InLoadoutSlot),
+			*LoadedWeaponDefinition->WeaponTag.ToString(),
+			*LoadoutRuntimeComponent->DescribeWeaponRuntimeAssetReadiness(LoadedWeaponDefinition));
+		return false;
 	}
 
 	if (!LoadoutRuntimeComponent || !LoadoutRuntimeComponent->EnsureLoadoutSlotWeaponInstance(InLoadoutSlot))
 	{
+		UE_LOG(
+			LogHeroEquipmentComponent,
+			Warning,
+			TEXT("[WeaponSwitch] 同步切武失败：目标槽位武器实例未就绪。槽位=%s WeaponTag=%s"),
+			*HeroEquipmentComponentLog::GetWeaponLoadoutSlotName(InLoadoutSlot),
+			*LoadedWeaponDefinition->WeaponTag.ToString());
 		return false;
 	}
 
-	// 只有目标定义、运行时资源和目标实例都已经就绪后，
-	// 才允许进入真正写回 EquippedWeaponState 的正式装备阶段。
+	// 战斗期切武当前只接受“定义、runtime 资源和实例都已经 ready”的同步路径。
 	return EquipResolvedLoadoutSlot(InLoadoutSlot, const_cast<UDataAsset_WeaponDefinition*>(LoadedWeaponDefinition));
 }
 
@@ -495,20 +489,6 @@ UAnimMontage* UHeroEquipmentComponent::GetSpecialWeaponSwitchMontageForLoadoutSl
 			LoadoutRuntimeComponent->GetLoadedWeaponDefinitionByLoadoutSlot(InLoadoutSlot))
 		{
 			return WeaponDefinition->GetSpecialWeaponSwitchMontage();
-		}
-	}
-
-	return nullptr;
-}
-
-UAnimMontage* UHeroEquipmentComponent::GetNormalWeaponSwitchMontageForLoadoutSlot(const EHeroWeaponLoadoutSlot InLoadoutSlot) const
-{
-	if (const UHeroLoadoutRuntimeComponent* LoadoutRuntimeComponent = GetOwningHeroLoadoutRuntimeComponent())
-	{
-		if (const UDataAsset_WeaponDefinition* WeaponDefinition =
-			LoadoutRuntimeComponent->GetLoadedWeaponDefinitionByLoadoutSlot(InLoadoutSlot))
-		{
-			return WeaponDefinition->GetNormalWeaponSwitchMontage();
 		}
 	}
 
@@ -869,7 +849,19 @@ void UHeroEquipmentComponent::GrantLoadoutAbilities(const EHeroWeaponLoadoutSlot
 		// 资产层仍然可以继续配置通用战斗输入标签。
 		// 真正授予 ASC 前，会在这里按固定武器槽改写成槽位专属输入标签，避免常驻 GA 抢输入。
 		const FGameplayTag ResolvedInputTag = ResolveGrantedAbilityInputTagForLoadoutSlot(InLoadoutSlot, AbilitySet.InputTag);
-		RuntimeState->GrantedLoadoutAbilityHandles.Add(OwnerASC->GrantAbility(AbilitySet.AbilityToGrant, ResolvedInputTag));
+		const FGameplayAbilitySpecHandle GrantedHandle =
+			OwnerASC->GrantAbility(AbilitySet.AbilityToGrant, ResolvedInputTag);
+		RuntimeState->GrantedLoadoutAbilityHandles.Add(GrantedHandle);
+		if (!GrantedHandle.IsValid())
+		{
+			UE_LOG(
+				LogHeroEquipmentComponent,
+				Error,
+				TEXT("[GA GrantValidation] 固定槽常驻能力授予失败。槽位=%s InputTag=%s Ability=%s"),
+				*HeroEquipmentComponentLog::GetWeaponLoadoutSlotName(InLoadoutSlot),
+				*ResolvedInputTag.ToString(),
+				*GetNameSafe(AbilitySet.AbilityToGrant));
+		}
 	}
 }
 
@@ -942,6 +934,18 @@ void UHeroEquipmentComponent::GrantWeaponDefinitionAbilities(
 		const FGameplayAbilitySpecHandle GrantedHandle =
 			OwnerASC->GrantAbility(SpiritAbilityEntry.AbilityToGrant, ResolvedInputTag);
 		RuntimeState->GrantedWeaponDefinitionAbilityHandles.Add(GrantedHandle);
+		if (!GrantedHandle.IsValid())
+		{
+			UE_LOG(
+				LogHeroEquipmentComponent,
+				Error,
+				TEXT("[GA GrantValidation] 武器定义附加能力授予失败。槽位=%s WeaponTag=%s InputTag=%s Ability=%s EntryKind=%d"),
+				*HeroEquipmentComponentLog::GetWeaponLoadoutSlotName(InLoadoutSlot),
+				*InWeaponDefinition->WeaponTag.ToString(),
+				*ResolvedInputTag.ToString(),
+				*GetNameSafe(SpiritAbilityEntry.AbilityToGrant),
+				static_cast<int32>(SpiritAbilityEntry.EntryKind));
+		}
 
 		UE_LOG(
 			LogHeroEquipmentComponent,

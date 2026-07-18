@@ -33,6 +33,11 @@ public class ActionRPG : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 
+		if (Target.Type == TargetType.Editor)
+		{
+			PrivateDependencyModuleNames.Add("AssetRegistry");
+		}
+
 		// 如果需要使用 Slate UI，可以取消下面这行注释。
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
 		

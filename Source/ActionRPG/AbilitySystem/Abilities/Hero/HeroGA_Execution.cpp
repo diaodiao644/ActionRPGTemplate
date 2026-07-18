@@ -6,6 +6,7 @@
 #include "AbilitySystem/ActionAbilitySystemComponent.h"
 #include "Characters/ActionHeroCharacter.h"
 #include "Components/Combat/HeroCombatComponent.h"
+#include "Components/Combat/HeroCombatInputComponent.h"
 #include "Components/Combat/HeroDefenseComponent.h"
 #include "Components/Combat/HeroTargetingComponent.h"
 #include "Debug/ActionDebugHelper.h"
@@ -23,18 +24,6 @@ UHeroGA_Execution::UHeroGA_Execution()
 	ActivationPolicy = EActionAbilityActivationPolicy::OnInput;
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_Execution);
 	ActivationOwnedTags.AddTag(ActionGameplayTags::State_Ability_Execution_Active);
-
-	// 处决属于当前框架里的最高优先级主动战斗行为。
-	AbilityPriority = 40;
-	bCanInterruptLowerPriorityAbilities = true;
-	bCanInterruptSamePriorityAbilities = false;
-	bCanBeInterruptedByHigherPriority = false;
-	bCanBeInterruptedBySamePriority = false;
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_Attack);
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_CombatModeOrDefense);
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_Dodge);
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_SpiritSkill);
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_WeaponSwitch);
 	CombatReactAbilityRule.bAllowActivationDuringRecoveryCancelWindow = true;
 
 	// 处决期间执行者自身的保护也统一走持续修正效果。
@@ -51,6 +40,7 @@ bool UHeroGA_Execution::ValidateRelationshipActivationPreconditions(FString& Out
 {
 	// 关系预检阶段只补充“这条处决主链现在有没有资格被放行”的判断。
 	// 这里不真正写预占窗口、执行者保护或目标锁，避免预检失败时留下半套处决副作用。
+	// 处决的“能否接管当前其它主动 GA”仍由 ASC 关系矩阵负责，这里只确认它自己当前是否具备即时起手资格。
 	if (!ValidateHeroRuntimeObjects(OutFailureReason, false, true))
 	{
 		return false;
@@ -185,8 +175,7 @@ void UHeroGA_Execution::ActivateAbility(
 		HeroDefenseComponent->ClearDodgeCounterAvailability();
 	}
 	HeroCombatComponent->SetAttackEnabled(false);
-	HeroCombatComponent->CloseAbilityChainWindow();
-	HeroCombatComponent->CloseAbilityCancelWindow();
+	HeroCombatComponent->ClearAbilityWindowsForAuthoritativeTakeover();
 
 	// 正式进入处决流程后，执行者获得无敌，避免处决演出被外部伤害或效果打断。
 	// 受害者侧的锁定与保护由战斗组件在预占/正式处决链里统一处理，这里只负责执行者自身保护。
@@ -958,7 +947,6 @@ void UHeroGA_Execution::FinalizeExecutionState(bool bWasCancelled)
 		}
 
 		HeroCombatComponent->SetAttackEnabled(true);
-		HeroCombatComponent->CloseAbilityCancelWindow();
 
 		if (bExecutionWindowReserved)
 		{
@@ -1019,6 +1007,12 @@ void UHeroGA_Execution::FinalizeExecutionState(bool bWasCancelled)
 			*GetNameSafe(CachedExecutionTargetActor.Get())),
 		FColor::Green,
 		2.0f);
+
+	if (UHeroCombatInputComponent* HeroCombatInputComponent = GetHeroCombatInputComponentFromActorInfo())
+	{
+		HeroCombatInputComponent->ClearBufferedInputIfMatchesTag(ActionGameplayTags::InputTag_GameplayAbility_Execution);
+		HeroCombatInputComponent->ClearInputStateByTag(ActionGameplayTags::InputTag_GameplayAbility_Execution);
+	}
 
 	// 处决结束后立刻尝试消费一帧缓冲输入，让后续攻击或闪避衔接更顺畅。
 	if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())

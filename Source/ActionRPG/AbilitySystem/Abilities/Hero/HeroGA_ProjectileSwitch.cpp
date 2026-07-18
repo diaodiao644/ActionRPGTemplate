@@ -75,19 +75,6 @@ UHeroGA_ProjectileSwitch::UHeroGA_ProjectileSwitch()
 	ActivationPolicy = EActionAbilityActivationPolicy::OnInput;
 
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_ProjectileSwitch);
-
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Attack_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Defense_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Dodge_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Execution_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_SpiritSkill_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_WeaponSwitch_Active);
-
-	AbilityPriority = 8;
-	bCanInterruptLowerPriorityAbilities = false;
-	bCanInterruptSamePriorityAbilities = false;
-	bCanBeInterruptedByHigherPriority = true;
-	bCanBeInterruptedBySamePriority = false;
 }
 
 bool UHeroGA_ProjectileSwitch::ValidateRelationshipActivationPreconditions(FString& OutFailureReason)

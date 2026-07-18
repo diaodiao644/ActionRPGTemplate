@@ -6,14 +6,17 @@
 #include "AbilitySystemComponent.h"
 #include "Characters/ActionHeroCharacter.h"
 #include "Components/Combat/HeroAttackComponent.h"
+#include "Components/Combat/ActionCombatReactComponent.h"
 #include "Components/Combat/HeroCombatComponent.h"
 #include "Components/Combat/HeroCombatInputComponent.h"
-#include "Components/Combat/HeroDefenseComponent.h"
 #include "Components/Combat/HeroTargetingComponent.h"
+#include "Components/Combat/HeroWeaponSwitchComponent.h"
 #include "Components/Equipment/HeroEquipmentComponent.h"
+#include "Components/Equipment/HeroLoadoutStateComponent.h"
 #include "Components/Equipment/HeroLoadoutRuntimeComponent.h"
 #include "DataAssets/Weapons/DataAsset_WeaponDefinition.h"
 #include "Debug/ActionDebugHelper.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 namespace HeroSpiritSkillAbility
 {
@@ -95,19 +98,6 @@ UHeroGA_SpiritSkill::UHeroGA_SpiritSkill()
 
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_SpiritSkill);
 	ActivationOwnedTags.AddTag(ActionGameplayTags::State_Ability_SpiritSkill_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Attack_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Defense_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Dodge_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Execution_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_WeaponSwitch_Active);
-
-	// SpiritSkill 仍保持“从属武器主动能力”定位，但基线优先级上调到 20，
-	// 用于与普通攻击拉开更清晰的抢占顺序。
-	AbilityPriority = 20;
-	bCanInterruptLowerPriorityAbilities = false;
-	bCanInterruptSamePriorityAbilities = false;
-	bCanBeInterruptedByHigherPriority = true;
-	bCanBeInterruptedBySamePriority = false;
 }
 
 void UHeroGA_SpiritSkill::ResolveAbilityCooldownConfig(
@@ -128,33 +118,95 @@ void UHeroGA_SpiritSkill::ResolveAbilityCooldownConfig(
 
 bool UHeroGA_SpiritSkill::ValidateRelationshipActivationPreconditions(FString& OutFailureReason)
 {
+	// Spirit 当前在关系裁决前只保留共享硬门禁和 Spirit 自己的业务前置。
+	// 它不再依赖 Attack 的旧输入层 interrupt whitelist 先放行，是否能接管活跃主动 GA 统一留给 ASC。
 	if (!ValidateHeroRuntimeObjects(OutFailureReason, false, true))
 	{
 		return false;
 	}
 
+	AActionHeroCharacter* HeroCharacter = GetHeroCharacterFromActorInfo();
 	UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo();
-	if (!HeroCombatComponent)
+	if (!HeroCharacter || !HeroCombatComponent)
 	{
-		OutFailureReason = TEXT("hero combat component is invalid");
+		OutFailureReason = TEXT("hero character or combat component is invalid");
 		return false;
 	}
 
-	if (UHeroDefenseComponent* HeroDefenseComponent = GetHeroDefenseComponentFromActorInfo())
+	const FGameplayTag CurrentSpiritInputTag = GetCurrentSpiritSkillInputTag();
+	if (!ActionGameplayTags::IsSpiritSkillInputTag(CurrentSpiritInputTag))
 	{
-		const FGameplayTag CurrentSpiritInputTag = GetCurrentSpiritSkillInputTag();
-		if (!HeroDefenseComponent->CanActivateNonAttackInputNow(CurrentSpiritInputTag))
+		OutFailureReason = TEXT("current SpiritAbilitySpec has no valid SpiritSkill1~4 input tag");
+		return false;
+	}
+
+	if (const UHeroLoadoutStateComponent* LoadoutStateComponent = HeroCharacter->GetHeroLoadoutStateComponent())
+	{
+		if (!LoadoutStateComponent->IsWeaponLoadoutStartupReady())
 		{
-			// SpiritSkill 继续保持“从属非攻击能力”定位，
-			// 因此受击、空中、切武表现期和取消窗口白名单的统一门禁，也要收口到关系预检里。
-			OutFailureReason =
-				HeroCombatComponent->DescribeNonAttackInputGateForDebug(CurrentSpiritInputTag);
+			OutFailureReason = FString::Printf(
+				TEXT("SpiritSkill stable precheck blocked: weapon loadout startup is not ready. Pending=%d Total=%d Failure=%s"),
+				LoadoutStateComponent->GetWeaponLoadoutStartupPendingSlotCount(),
+				LoadoutStateComponent->GetWeaponLoadoutStartupTotalSlotCount(),
+				LoadoutStateComponent->GetWeaponLoadoutStartupFailureReason().IsEmpty()
+					? TEXT("none")
+					: *LoadoutStateComponent->GetWeaponLoadoutStartupFailureReason());
 			return false;
 		}
 	}
 	else
 	{
-		OutFailureReason = TEXT("hero defense component is invalid");
+		OutFailureReason = TEXT("hero loadout state component is invalid");
+		return false;
+	}
+
+	if (const UActionCombatReactComponent* CombatReactComponent = HeroCharacter->GetActionCombatReactComponent())
+	{
+		// CombatReact 相关限制仍然属于共享硬门禁：
+		// 这里拦的是“Spirit 当前宿主状态不允许起手”，不是主动 GA 默认优先级关系本身。
+		if (CombatReactComponent->IsPrimaryReactPhaseActive())
+		{
+			OutFailureReason = FString::Printf(
+				TEXT("SpiritSkill stable precheck blocked: combat react primary phase is active. %s"),
+				*CombatReactComponent->DescribeCurrentCombatReactState());
+			return false;
+		}
+
+		if (CombatReactComponent->IsRecoveryPhaseActive()
+			&& !CombatReactComponent->CanActivateAbilityDuringRecoveryCancelWindow(CurrentSpiritInputTag))
+		{
+			OutFailureReason = FString::Printf(
+				TEXT("SpiritSkill stable precheck blocked: combat react recovery phase has not formally allowed input %s. %s"),
+				*CurrentSpiritInputTag.ToString(),
+				*CombatReactComponent->DescribeCurrentCombatReactState());
+			return false;
+		}
+	}
+
+	const UCharacterMovementComponent* MovementComponent = HeroCharacter->GetCharacterMovement();
+	if (MovementComponent && MovementComponent->IsFalling())
+	{
+		OutFailureReason = TEXT("SpiritSkill stable precheck blocked: character is in falling state");
+		return false;
+	}
+
+	if (const UHeroWeaponSwitchComponent* HeroWeaponSwitchComponent = HeroCharacter->GetHeroWeaponSwitchComponent())
+	{
+		if (HeroWeaponSwitchComponent->IsWeaponSwitchTransactionInProgress())
+		{
+			OutFailureReason = TEXT("SpiritSkill stable precheck blocked: weapon switch transaction is still active");
+			return false;
+		}
+
+		if (HeroWeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
+		{
+			OutFailureReason = TEXT("SpiritSkill stable precheck blocked: special weapon switch presentation is active");
+			return false;
+		}
+	}
+	else
+	{
+		OutFailureReason = TEXT("hero weapon switch component is invalid");
 		return false;
 	}
 
@@ -210,13 +262,16 @@ void UHeroGA_SpiritSkill::ActivateAbility(
 
 	// 组件侧已经记住“这条 Spirit 连段已经正式提交过一次成本”时，
 	// 后续续段只复用那条持久链，不在每次重新按下同一 Spirit 输入时重复扣成本。
-	// 这里仍保留 CommitCheck，用于让首段起手继续遵守正式资格判断。
-	if (!bContinuingExistingSpiritChain
-		&& !CommitCheck(Handle, ActorInfo, ActivationInfo))
+	// 首段起手资格已经前移到 ASC 的两阶段正式激活链，这里只保留真正的成本提交。
+	if (bContinuingExistingSpiritChain
+		&& HeroCombatComponent)
 	{
-		Debug::Print(TEXT("[GA][SpiritSkill] 激活失败：CommitCheck 未通过"), FColor::Red, 2.0f);
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
+		Debug::Print(
+			FString::Printf(
+				TEXT("[GA][SpiritSkill] 持久资格：%s"),
+				*HeroCombatComponent->DescribeSpiritSkillComboRuntimeState(ActiveSpiritInputTag)),
+			FColor::Yellow,
+			1.5f);
 	}
 
 	if (!bContinuingExistingSpiritChain
@@ -323,11 +378,6 @@ void UHeroGA_SpiritSkill::EndAbility(
 	{
 		bAbilityFinished = true;
 
-		if (!bSpiritCooldownCommitted)
-		{
-			CommitSpiritSkillCooldownIfNeeded();
-		}
-
 		Debug::Print(
 			FString::Printf(
 				TEXT("[GA][SpiritSkill] 结束：技能=%s 已取消=%d"),
@@ -338,6 +388,7 @@ void UHeroGA_SpiritSkill::EndAbility(
 	}
 
 	ClearBufferedSpiritSkillInputIfAny();
+	CloseSpiritChainWindowIfNeeded();
 
 	if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())
 	{
@@ -633,6 +684,14 @@ bool UHeroGA_SpiritSkill::CanAdvanceSpiritClipWithinCurrentActivation() const
 		&& ActiveSkillClipIndex + 1 < ActiveSkillClipCount;
 }
 
+void UHeroGA_SpiritSkill::CloseSpiritChainWindowIfNeeded()
+{
+	if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())
+	{
+		HeroCombatComponent->CloseAbilityChainWindow();
+	}
+}
+
 bool UHeroGA_SpiritSkill::TryStartImmediateNextSpiritClip()
 {
 	if (bImmediateSpiritClipTransitionInProgress || !CanAdvanceSpiritClipWithinCurrentActivation())
@@ -662,6 +721,9 @@ bool UHeroGA_SpiritSkill::TryStartImmediateNextSpiritClip()
 	bHandledCurrentClipFinish = true;
 	bPendingAdvanceToNextClip = false;
 
+	// 内部立即切段会主动停掉旧蒙太奇，旧通知的 NotifyEnd 之后会因为运行中蒙太奇已切走而被忽略。
+	// 这里先显式关掉上一段链窗，避免它残留到新段起手瞬间。
+	CloseSpiritChainWindowIfNeeded();
 	StopActiveHeroMontageTaskAndCurrentMontage(true);
 
 	if (CurrentSpiritMontage)
@@ -680,11 +742,6 @@ bool UHeroGA_SpiritSkill::TryStartImmediateNextSpiritClip()
 	if (bStartedNextClip)
 	{
 		return true;
-	}
-
-	if (!bSpiritCooldownCommitted)
-	{
-		CommitSpiritSkillCooldownIfNeeded();
 	}
 
 	HeroCombatComponent->ResetSpiritSkillComboState(ActiveSpiritInputTag);
@@ -720,7 +777,7 @@ bool UHeroGA_SpiritSkill::StartSpiritSkillClip(const int32 ClipIndex)
 	bHandledCurrentClipFinish = false;
 
 	// 最后一段一旦正式起手，本条 Spirit 连段就已经进入“确定会消耗一次冷却”的阶段。
-	// 中间段则先允许进入待命，只有超时或自然收尾时才提交流却，两者故意分开。
+	// 中间段则先允许进入待命，只有组件侧待命超时才提交流却；取消收尾和异常收尾都不再补冷却。
 	const bool bIsLastClip = ActiveSkillClipIndex >= ActiveSkillClipCount - 1;
 	if (bIsLastClip && !CommitSpiritSkillCooldownIfNeeded())
 	{
@@ -805,19 +862,30 @@ void UHeroGA_SpiritSkill::HandleSpiritSkillClipFinished(const bool bWasCancelled
 	}
 
 	bHandledCurrentClipFinish = true;
+	CloseSpiritChainWindowIfNeeded();
 
 	// 被打断、被取消或首段失败后的收口，统一按“本次链已经终止”处理：
-	// 需要的话先补提交冷却，再清掉组件侧持久段状态，避免旧待命态残留到下一次激活。
+	// 当前不再因为取消本身补冷却；Spirit 冷却正式只允许由最后一段起手或待命超时提交。
 	if (bWasCancelled)
 	{
-		if (!bSpiritCooldownCommitted)
-		{
-			CommitSpiritSkillCooldownIfNeeded();
-		}
-
 		if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())
 		{
-			HeroCombatComponent->ResetSpiritSkillComboState(ActiveSpiritInputTag);
+			if (!HeroCombatComponent->HasSpiritSkillChainQualification(ActiveSpiritInputTag)
+				|| bSpiritCooldownCommitted
+				|| ActiveSkillClipIndex >= ActiveSkillClipCount - 1)
+			{
+				HeroCombatComponent->ResetSpiritSkillComboState(ActiveSpiritInputTag);
+			}
+			else
+			{
+				Debug::Print(
+					FString::Printf(
+						TEXT("[GA][SpiritSkill] 中断保留资格：技能=%s State=%s"),
+						ActiveSpiritSkillDebugName.IsEmpty() ? TEXT("未命名灵武器技能") : *ActiveSpiritSkillDebugName,
+						*HeroCombatComponent->DescribeSpiritSkillComboRuntimeState(ActiveSpiritInputTag)),
+					FColor::Yellow,
+					1.5f);
+			}
 		}
 
 		ClearBufferedSpiritSkillInputIfAny();
@@ -831,11 +899,6 @@ void UHeroGA_SpiritSkill::HandleSpiritSkillClipFinished(const bool bWasCancelled
 	{
 		if (!StartSpiritSkillClip(ActiveSkillClipIndex + 1))
 		{
-			if (!bSpiritCooldownCommitted)
-			{
-				CommitSpiritSkillCooldownIfNeeded();
-			}
-
 			if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())
 			{
 				HeroCombatComponent->ResetSpiritSkillComboState(ActiveSpiritInputTag);
@@ -879,11 +942,23 @@ void UHeroGA_SpiritSkill::HandleSpiritSkillClipFinished(const bool bWasCancelled
 	}
 
 	// 走到这里说明这条链不会再进入组件侧待命：
-	// 要么已经是最后一段，要么当前配置不允许持久接段，要么待命建立失败。
-	// 这时统一按“正式结束这条 Spirit 连段”收尾并回收组件态。
-	if (!bSpiritCooldownCommitted)
+	// 要么已经是最后一段，要么当前配置异常导致中间段没能建立待命。
+	// 最后一段的冷却应该早已在起手时提交；中间段异常则直接记 warning 并清理，不再顺手补冷却。
+	const bool bCurrentClipIsLast = ActiveSkillClipIndex >= ActiveSkillClipCount - 1;
+	if (!bSpiritCooldownCommitted && !bCurrentClipIsLast)
 	{
-		CommitSpiritSkillCooldownIfNeeded();
+		const FString SkillDebugName =
+			ActiveSpiritSkillDebugName.IsEmpty() ? TEXT("未命名灵武器技能") : ActiveSpiritSkillDebugName;
+		UE_LOG(
+			ActionRPG,
+			Warning,
+			TEXT("[GA][SpiritSkill] 非最后一段结束时未能建立待命；本次只清理链状态，不提交冷却。Skill=%s Input=%s Clip=%d/%d UseComboIndex=%d PendingAdvance=%d"),
+			*SkillDebugName,
+			ActiveSpiritInputTag.IsValid() ? *ActiveSpiritInputTag.ToString() : TEXT("无效"),
+			ActiveSkillClipIndex == INDEX_NONE ? 0 : ActiveSkillClipIndex + 1,
+			ActiveSkillClipCount,
+			ActiveSpiritAbilityEntryConfig.SpiritSkillConfig.bUseComboIndex ? 1 : 0,
+			bPendingAdvanceToNextClip ? 1 : 0);
 	}
 
 	if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())
@@ -898,8 +973,8 @@ void UHeroGA_SpiritSkill::HandleSpiritSkillClipFinished(const bool bWasCancelled
 bool UHeroGA_SpiritSkill::CommitSpiritSkillCooldownIfNeeded()
 {
 	// 同一条 Spirit 链的冷却只允许正式提交一次。
-	// 最后一段起手、中间段待命超时、取消收尾和 EndAbility 都可能走到这里，
-	// 因此必须用显式标记挡住重复提交。
+	// 当前正式提交口固定只剩两处：最后一段起手，以及组件侧待命超时后的外部补冷却。
+	// 因此这里仍需要显式标记挡住重复提交，但不再由取消收尾或 EndAbility 兜底触发。
 	if (bSpiritCooldownCommitted)
 	{
 		return true;

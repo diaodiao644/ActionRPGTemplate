@@ -22,18 +22,6 @@ UHeroGA_CombatModeOrDefense::UHeroGA_CombatModeOrDefense()
 	// 在原生构造函数里固定声明 AbilityTag，避免蓝图侧遗漏配置。
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_CombatModeOrDefense);
 	ActivationOwnedTags.AddTag(ActionGameplayTags::State_Ability_Defense_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Dodge_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Execution_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_SpiritSkill_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_WeaponSwitch_Active);
-
-	// 防御比普通攻击更偏“保命动作”，因此允许在取消窗口里抢占低优先级攻击。
-	AbilityPriority = 25;
-	bCanInterruptLowerPriorityAbilities = true;
-	bCanInterruptSamePriorityAbilities = false;
-	bCanBeInterruptedByHigherPriority = true;
-	bCanBeInterruptedBySamePriority = false;
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_Attack);
 	CombatReactAbilityRule.bAllowActivationDuringRecoveryCancelWindow = true;
 
 	// 防御期间的临时战斗状态也统一落到这份持续修正效果里。
@@ -68,13 +56,13 @@ bool UHeroGA_CombatModeOrDefense::ValidateRelationshipActivationPreconditions(FS
 		return false;
 	}
 
-	if (!HeroDefenseComponent->CanActivateNonAttackInputNow(ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense))
+	if (!HeroDefenseComponent->CanEnterRelationshipActivationForNonAttackInput(
+		ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense,
+		&OutFailureReason))
 	{
-		// 统一把防御 / 姿态输入当前是否被受击、空中、切武或取消窗口拦住的判断，
-		// 收口到关系系统预检里，避免不同触发路径出现“有的在输入层被吞，有的到 GA 才失败”的口径分裂。
-		// 这样同一非攻击输入无论来自即时输入还是缓冲回放，都会回到同一套正式门禁。
-		OutFailureReason =
-			HeroCombatComponent->DescribeNonAttackInputGateForDebug(ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense);
+		// 防御 / 姿态链当前只在关系裁决前保留共享硬门禁。
+		// 面对活跃主动 GA 时是否允许抢入，统一交给 ASC 关系矩阵处理。
+		// 这里不再把旧 non-attack input gate 当成最终关系结论。
 		return false;
 	}
 
@@ -278,6 +266,8 @@ void UHeroGA_CombatModeOrDefense::DefenseLogic()
 	// 因此输入释放监听比蒙太奇结束更关键。
 	// 蒙太奇在这里只负责表现层起手，真正决定何时退出的是输入层。
 	// WaitInputRelease 是主释放通道；后面的 StartDefenseReleaseWatch() 只负责兜极端时序漏事件。
+	// 这里绑定的是本次激活的 AbilityTask 回调桥，不是新的正式输入状态源；
+	// 是否真的处于按住、缓冲或 Held 回放阶段，仍继续回到 HeroCombatInputComponent。
 	InputReleasedEvent->OnRelease.AddDynamic(this, &UHeroGA_CombatModeOrDefense::HandleDefenseInputReleased);
 	InputReleasedEvent->Activate();
 	StartDefenseReleaseWatch();

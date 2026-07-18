@@ -243,7 +243,17 @@ void AActionHeroCharacter::InitLoadoutData()
 	{
 		if (OnGivenAbilitySet.IsValid())
 		{
-			ActionAbilitySystemComponent->GrantAbility(OnGivenAbilitySet.AbilityToGrant, OnGivenAbilitySet.InputTag);
+			const FGameplayAbilitySpecHandle GrantedHandle =
+				ActionAbilitySystemComponent->GrantAbility(OnGivenAbilitySet.AbilityToGrant, OnGivenAbilitySet.InputTag);
+			if (!GrantedHandle.IsValid())
+			{
+				UE_LOG(
+					LogActionHeroCharacter,
+					Error,
+					TEXT("[GA GrantValidation] OnGiven ability grant failed. Input=%s Ability=%s"),
+					*OnGivenAbilitySet.InputTag.ToString(),
+					*GetNameSafe(OnGivenAbilitySet.AbilityToGrant));
+			}
 		}
 	}
 
@@ -252,7 +262,17 @@ void AActionHeroCharacter::InitLoadoutData()
 	{
 		if (ReactiveAbilitySet.IsValid())
 		{
-			ActionAbilitySystemComponent->GrantAbility(ReactiveAbilitySet.AbilityToGrant, ReactiveAbilitySet.InputTag);
+			const FGameplayAbilitySpecHandle GrantedHandle =
+				ActionAbilitySystemComponent->GrantAbility(ReactiveAbilitySet.AbilityToGrant, ReactiveAbilitySet.InputTag);
+			if (!GrantedHandle.IsValid())
+			{
+				UE_LOG(
+					LogActionHeroCharacter,
+					Error,
+					TEXT("[GA GrantValidation] Reactive ability grant failed. Input=%s Ability=%s"),
+					*ReactiveAbilitySet.InputTag.ToString(),
+					*GetNameSafe(ReactiveAbilitySet.AbilityToGrant));
+			}
 		}
 	}
 
@@ -261,7 +281,17 @@ void AActionHeroCharacter::InitLoadoutData()
 	{
 		if (InputAbilitySet.IsValid())
 		{
-			ActionAbilitySystemComponent->GrantAbility(InputAbilitySet.AbilityToGrant, InputAbilitySet.InputTag);
+			const FGameplayAbilitySpecHandle GrantedHandle =
+				ActionAbilitySystemComponent->GrantAbility(InputAbilitySet.AbilityToGrant, InputAbilitySet.InputTag);
+			if (!GrantedHandle.IsValid())
+			{
+				UE_LOG(
+					LogActionHeroCharacter,
+					Error,
+					TEXT("[GA GrantValidation] Persistent input ability grant failed. Input=%s Ability=%s"),
+					*InputAbilitySet.InputTag.ToString(),
+					*GetNameSafe(InputAbilitySet.AbilityToGrant));
+			}
 		}
 	}
 
@@ -434,6 +464,17 @@ void AActionHeroCharacter::PrintGrantedHeroCombatAbilityRelationshipAudit() cons
 	ActionAbilitySystemComponent->PrintHeroCombatAbilityRelationshipAudit();
 }
 
+void AActionHeroCharacter::PrintGrantedHeroCombatAbilityCategoryAudit() const
+{
+	if (!ActionAbilitySystemComponent)
+	{
+		Debug::Print(TEXT("[GA CategoryAudit] 角色当前没有有效的 ActionAbilitySystemComponent。"), FColor::Red, 4.0f);
+		return;
+	}
+
+	ActionAbilitySystemComponent->PrintHeroCombatAbilityCategoryAudit();
+}
+
 bool AActionHeroCharacter::PrintHeroCombatAbilityDebugByInputTag(const FGameplayTag AbilityInputTag) const
 {
 	if (!ActionAbilitySystemComponent)
@@ -443,6 +484,29 @@ bool AActionHeroCharacter::PrintHeroCombatAbilityDebugByInputTag(const FGameplay
 	}
 
 	return ActionAbilitySystemComponent->PrintHeroCombatAbilityDebugByInputTag(AbilityInputTag);
+}
+
+bool AActionHeroCharacter::PrintHeroCombatAbilityCategoryAuditByInputTag(
+	const FGameplayTag AbilityInputTag) const
+{
+	if (!ActionAbilitySystemComponent)
+	{
+		Debug::Print(TEXT("[GA CategoryAudit] 角色当前没有有效的 ActionAbilitySystemComponent。"), FColor::Red, 4.0f);
+		return false;
+	}
+
+	return ActionAbilitySystemComponent->PrintHeroCombatAbilityCategoryAuditByInputTag(AbilityInputTag);
+}
+
+void AActionHeroCharacter::PrintHeroCombatAbilityRelationshipFailureHistory(const int32 MaxEntries) const
+{
+	if (!ActionAbilitySystemComponent)
+	{
+		Debug::Print(TEXT("[GA FailureHistory] 角色当前没有有效的 ActionAbilitySystemComponent。"), FColor::Red, 4.0f);
+		return;
+	}
+
+	ActionAbilitySystemComponent->PrintHeroCombatAbilityRelationshipFailureHistory(MaxEntries);
 }
 
 bool AActionHeroCharacter::ShouldUseWeaponLinkedLayer() const

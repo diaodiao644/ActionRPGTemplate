@@ -17,11 +17,17 @@ class UAnimMontage;
 class ACharacter;
 struct FActionExecutionRootMotionOverrideRuntime
 {
+	/** 当前被临时接管 Root Motion 模式的目标角色。只服务 victim 演出期间的局部运行态。 */
 	TWeakObjectPtr<ACharacter> Character;
+	/** 当前要求临时启用 Root Motion 的目标侧被处决蒙太奇。 */
 	TWeakObjectPtr<UAnimMontage> Montage;
+	/** 覆盖前的 Root MotionMode，收尾时必须原样恢复。 */
 	TEnumAsByte<ERootMotionMode::Type> PreviousRootMotionMode = ERootMotionMode::RootMotionFromMontagesOnly;
+	/** 本次覆盖的原因名，只服务日志与成对校验。 */
 	FName Reason = NAME_None;
+	/** 目标侧处决期间对 Capsule 的 Pawn 穿透覆写句柄。 */
 	FActionCollisionOverrideHandle CapsulePawnPassThroughHandle;
+	/** 当前这笔 victim Root Motion 覆写是否仍处于生效状态。 */
 	bool bActive = false;
 
 	void Reset()
@@ -204,7 +210,7 @@ public:
 	/** 在准备完成后正式播放目标侧被处决蒙太奇。 */
 	bool TryStartPreparedExecutionPresentation(AActor* InstigatorActor, FString* OutFailureReason = nullptr);
 
-	/** 目标侧被处决蒙太奇结束回调。已消费处决链会在这里正式关窗并完成目标侧收尾。 */
+	/** 目标侧被处决蒙太奇结束回调。已消费处决链会在这里正式关窗并完成目标侧收尾；旧蒙太奇晚到回调不应改写新的 victim 运行态。 */
 	void HandleVictimExecutionMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
 	/** 输出目标侧处决前准备的当前运行态说明，供执行者侧轮询诊断复用。 */
@@ -213,16 +219,16 @@ public:
 		FString& OutDescription,
 		FString* OutFailureReason = nullptr) const;
 
-	/** 目标侧被处决蒙太奇内的专用 Notify 到达后，正式解除目标硬锁并恢复响应资格；不在这里直接关窗或恢复 Poise。 */
+	/** 目标侧被处决蒙太奇内的专用 Notify 到达后，正式解除目标硬锁并恢复响应资格；不在这里直接关窗、恢复 Poise 或消费窗口。 */
 	void NotifyExecutionRecoveryUnlockFrame();
 
-	/** 正式结束这次目标侧 victim 运行态。它只收 victim runtime，不直接裁决窗口是否消费。 */
+	/** 正式结束这次目标侧 victim 运行态。它只收 victim runtime、硬锁和 Root Motion 覆写，不直接裁决窗口是否消费。 */
 	void FinalizeExecutionVictimRuntime(bool bWasInterrupted);
 
-	/** 当前是否仍处于目标侧 victim 运行态。 */
+	/** 当前是否仍处于目标侧 victim 运行态。它回答的是“目标侧处决演出壳是否激活”，不是窗口本身是否仍开放。 */
 	bool IsExecutionVictimRuntimeActive() const { return bExecutionVictimRuntimeActive; }
 
-	/** 当前是否仍处于目标侧 victim 前段硬锁。 */
+	/** 当前是否仍处于目标侧 victim 前段硬锁。硬锁属于 victim 演出局部保护，不等于逻辑层窗口预占。 */
 	bool IsExecutionVictimHardLocked() const { return bExecutionVictimRuntimeActive && bExecutionVictimHardLockActive; }
 
 	/**
@@ -256,7 +262,7 @@ protected:
 	 */
 	UActionAbilitySystemComponent* GetOwningActionAbilitySystemComponent() const;
 
-	/** 读取拥有者角色。目标侧被处决转向与蒙太奇播放都统一从这里取宿主。 */
+	/** 读取拥有者角色。目标侧被处决转向、Root Motion 覆写和蒙太奇播放都统一从这里取宿主。 */
 	ACharacter* GetOwningCharacter() const;
 
 	/**
@@ -299,8 +305,9 @@ protected:
 	/** 查询指定蒙太奇是否已带上目标侧处决硬锁解除 Notify。 */
 	bool HasExecutionRecoveryUnlockNotify(const UAnimMontage* Montage) const;
 
-	/** 目标侧处决蒙太奇播放期间临时启用 Montage Root Motion。 */
+	/** 目标侧处决蒙太奇播放期间临时启用 Montage Root Motion。它只服务 victim 演出表现，不把处决窗口组件扩成常驻移动状态源。 */
 	bool BeginExecutionRootMotionOverride(UAnimMontage* Montage, FName Reason);
+	/** 收尾目标侧 victim 演出的 Root Motion 覆写与 Capsule 穿透覆写。 */
 	void EndExecutionRootMotionOverride(UAnimMontage* Montage, FName Reason);
 
 	/** 统一通过 GAS 属性修改链把目标韧性恢复到上限。 */
@@ -310,12 +317,12 @@ protected:
 	void ApplyExecutionVictimHardLockEffect();
 	void RemoveExecutionVictimHardLockEffect();
 
-	/** 清掉本次目标侧 victim 运行态。 */
+	/** 清掉本次目标侧 victim 运行态。它只回零局部运行时壳，不额外广播窗口事件。 */
 	void ClearExecutionVictimRuntime();
 
 protected:
 	/** 处决窗口持续时长。单位为秒，决定玩家从目标失衡到完成输入的可操作时间。 */
-	UPROPERTY(EditDefaultsOnly, Category = "Action|Execution")
+	UPROPERTY(EditDefaultsOnly, Category = "Action|Execution", meta = (ClampMin = "0.0", ToolTip = "处决窗口持续时长，单位秒。它决定目标在破韧后保留多久可被正式处决的机会。"))
 	float ExecutionWindowDuration = 4.f;
 
 	/**
@@ -323,29 +330,29 @@ protected:
 	 * 当前语义是：只要窗口关闭时目标仍然存活，就允许在收尾阶段把韧性恢复到正常值。
 	 * 这样无论窗口是自然关闭还是被正式处决消费，只要目标没死，后续都还能再次被正常破韧。
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Action|Execution")
+	UPROPERTY(EditDefaultsOnly, Category = "Action|Execution", meta = (ToolTip = "窗口关闭时是否自动恢复目标韧性。关闭后若目标仍存活，允许在正式收尾阶段恢复正常 Poise。"))
 	bool bRestorePoiseOnClose = true;
 
 	/**
 	 * 处决窗口运行时状态。
 	 * 这里保存窗口开关、最近触发者、当前预占者、受害者锁定者和超时句柄等运行时信息。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Execution")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Execution", meta = (ToolTip = "目标侧处决窗口完整运行态。它持有窗口开关、预占者、受害者锁和超时等正式状态，不应误读成执行者侧局部缓存。"))
 	FActionExecutionWindowRuntimeState ExecutionWindowRuntimeState;
 
 	/**
 	 * 处决期间施加给目标的受害者锁定效果。
 	 * 当前默认会授予一个“处决受害者锁定中”的状态标签，供受击保护和状态查询复用。
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Execution", meta = (ToolTip = "处决期间施加给目标的受害者锁定效果。它主要服务“外部普通伤害和效果暂时不可接管”的保护语义。"))
 	FActionCombatModifierEffectSpec ExecutionVictimLockCombatModifierEffect;
 
 	/** 不同武器小类对应的目标侧被处决演出配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Execution", meta = (ToolTip = "不同武器小类对应的目标侧被处决演出配置。每个条目至少应提供 VictimExecutionMontage，并与正式 Notify 口径保持一致。"))
 	TMap<FGameplayTag, FActionExecutionVictimAnimConfig> VictimExecutionAnimConfigs;
 
 	/** 处决恢复前段硬锁期间施加给目标的保护效果。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Execution", meta = (ToolTip = "目标侧处决恢复开窗前段硬锁期间施加的保护效果。它只服务 victim runtime 前段保护，不替代窗口开关本体。"))
 	FActionCombatModifierEffectSpec ExecutionVictimHardLockCombatModifierEffect;
 
 private:

@@ -49,19 +49,19 @@ public:
 	// 纯展示数据：
 	// 这一层只服务 UI 与调试面板，不参与数值结算，也不依赖运行时 ASC 状态。
 	/** 状态效果在 UI 上显示的名称。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "状态效果在 UI 上显示的名称。它只服务展示，不承担正式标签语义。"))
 	FText DisplayName;
 
 	/** 状态效果在 UI 上显示的说明文本。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "状态效果在 UI 上显示的说明文本。适合给状态栏、详情面板或调试面板直接读取。"))
 	FText Description;
 
 	/** 状态效果在 UI 上的主色调。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "状态效果在 UI 上使用的主色调。"))
 	FLinearColor DisplayColor = FLinearColor::White;
 
 	/** 状态效果图标。当前阶段只做数据入口，后续 UI 可直接读取。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "状态效果图标资源。当前只作为展示入口，不参与效果结算。"))
 	TSoftObjectPtr<UTexture2D> Icon;
 };
 
@@ -80,39 +80,39 @@ public:
 	// 这里保存的是“某个活跃状态效果当前对外显示成什么样”，
 	// 适合给 UI、调试信息和蓝图读，不适合反向作为底层结算数据源。
 	/** 当前状态效果对应的核心标签。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果的核心标签。它来自正式状态源快照，便于 UI 和调试层快速识别。"))
 	FGameplayTag StatusEffectTag;
 
 	/** 当前状态效果显示名称。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果在 UI 上显示的名称。它是只读快照，不应反向当成正式标签入口。"))
 	FText DisplayName;
 
 	/** 当前状态效果说明。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果在 UI 上显示的说明文本。"))
 	FText Description;
 
 	/** 当前状态效果显示色。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果在 UI 上使用的展示色。"))
 	FLinearColor DisplayColor = FLinearColor::White;
 
 	/** 当前状态效果图标。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果对应的图标资源。"))
 	TSoftObjectPtr<UTexture2D> Icon;
 
 	/** 剩余持续时间。小于 0 表示无限时长。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果的剩余持续时间。小于 0 表示无限时长。"))
 	float RemainingTime = 0.f;
 
 	/** 总持续时间。小于 0 表示无限时长。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果的总持续时间。小于 0 表示无限时长。"))
 	float TotalDuration = 0.f;
 
 	/** 当前层数。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果的层数快照。"))
 	int32 StackCount = 1;
 
 	/** 对应的活跃 GameplayEffect Handle，便于后续做手动移除或调试。 */
-	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect")
+	UPROPERTY(BlueprintReadOnly, Category = "StatusEffect", meta = (ToolTip = "当前活跃状态效果对应的 GameplayEffect Handle。它主要服务调试或手动移除，不是稳定存档键。"))
 	FActiveGameplayEffectHandle ActiveEffectHandle;
 };
 
@@ -131,15 +131,15 @@ struct FActionHitEffectEntry
 
 public:
 	/** 当前效果作用在命中目标还是攻击者自己。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect", meta = (ToolTip = "这条命中效果最终施加给命中目标还是攻击者自己。它只决定目标侧别，不改变效果定义资产本身。"))
 	EActionHitEffectTargetSide TargetSide = EActionHitEffectTargetSide::Target;
 
 	/** 当前效果属于 DOT / Buff / Debuff 中的哪一类。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect", meta = (ToolTip = "这条命中效果的公共分类。应与实际引用的效果定义资产语义一致，用于运行时校验和调试。"))
 	EActionHitEffectKind EffectKind = EActionHitEffectKind::Debuff;
 
 	/** 当前条目正式引用的效果配置资产。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect", meta = (ToolTip = "真正描述持续时间、标签或 DOT 参数的效果定义资产。留空时这条命中效果条目无效。"))
 	TObjectPtr<UDataAsset_ActionHitEffectDefinition> EffectDefinition = nullptr;
 
 public:
@@ -181,35 +181,35 @@ public:
 	// 这一层描述的是“想给目标挂一个持续几秒的战斗修正效果”，
 	// 真正运行时会再被转换成 GE 或其他可执行表现。
 	/** 持续时间，单位秒。小于等于 0 时视为非法请求。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ClampMin = "0.0", ToolTip = "持续战斗修正的持续时间，单位秒。小于等于 0 时这份修正规格不会进入正式执行链。"))
 	float Duration = 0.f;
 
 	/** 当前修正效果在 UI / 调试层上的主状态标签。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "这份修正效果在 UI / 调试层使用的主状态标签。它主要服务展示和查询，不替代 GrantedTags。"))
 	FGameplayTag StatusEffectTag;
 
 	/** 当前修正效果实际授予给目标 ASC 的运行时标签。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "这份修正效果真正授予给目标 ASC 的运行时标签集合。需要它来表达正式能力门禁或状态语义时再填写。"))
 	FGameplayTagContainer GrantedTags;
 
 	/** 对伤害易伤系数属性的加法修正量。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "对伤害易伤系数属性的加法修正量。正值通常表示目标更容易受到伤害。"))
 	float DamageVulnerabilityDelta = 0.f;
 
 	/** 对生命伤害抗性属性的加法修正量。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "对生命伤害抗性属性的加法修正量。"))
 	float HealthDamageResistanceDelta = 0.f;
 
 	/** 对防御耗体抗性属性的加法修正量。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "对普通格挡耗体抗性属性的加法修正量。"))
 	float GuardStaminaCostResistanceDelta = 0.f;
 
 	/** 对韧性伤害抗性属性的加法修正量。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "对削韧伤害抗性属性的加法修正量。"))
 	float PoiseDamageResistanceDelta = 0.f;
 
 	/** 对处决伤害倍率属性的加法修正量。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CombatModifier", meta = (ToolTip = "对处决伤害倍率属性的加法修正量。"))
 	float ExecutionDamageMultiplierDelta = 0.f;
 
 	// 基础校验：
@@ -249,15 +249,15 @@ struct FActionExternalHitEffectSourceEntry
 
 public:
 	/** 这条外部命中效果来源的唯一标签。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这条外部命中效果来源的唯一来源标签。后续覆盖、刷新或移除同类来源都依赖它。"))
 	FGameplayTag SourceTag;
 
 	/** 这条来源允许投递到哪些命中路径。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这条来源允许投递到近战命中、发射物命中还是两者都投递。"))
 	EActionExternalHitEffectApplyScope ApplyScope = EActionExternalHitEffectApplyScope::MeleeAndProjectile;
 
 	/** 这条来源当前提供给武器槽的效果集合。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这条来源当前提供给武器槽的效果集合。"))
 	TArray<FActionHitEffectEntry> HitEffects;
 
 	/** 判断这条来源记录是否至少具备有效来源标签。 */
@@ -294,23 +294,23 @@ struct FActionExternalHitEffectSourceApplyRequest
 
 public:
 	/** 这次写入请求的来源标签。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这次外部命中效果来源写入请求的唯一来源标签。后续更新、覆盖或移除同类来源都依赖它。"))
 	FGameplayTag SourceTag;
 
 	/** 这条来源允许投递到哪些命中路径。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这条来源允许投递到近战命中、发射物命中还是两者都投递。"))
 	EActionExternalHitEffectApplyScope ApplyScope = EActionExternalHitEffectApplyScope::MeleeAndProjectile;
 
 	/** 这次请求准备写入的正式效果集合。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这次请求要写入的正式效果集合。至少要有一条有效 HitEffect 条目，写入请求才会成立。"))
 	TArray<FActionHitEffectEntry> HitEffects;
 
 	/** 当前是否启用自动过期限制。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "是否为这条外部命中效果来源启用自动过期。关闭时这条来源会持续存在，直到被显式覆盖或移除。"))
 	bool bUseDurationLimit = false;
 
 	/** 若启用自动过期限制，这里填写持续时间。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ClampMin = "0.0", EditCondition = "bUseDurationLimit", EditConditionHides, ToolTip = "启用自动过期限制后，这里填写持续时间秒数。只在 bUseDurationLimit 为 true 时可配置。"))
 	float Duration = 0.f;
 
 	/** 判断这份高层 request 是否至少满足基础结构要求。 */
@@ -343,7 +343,7 @@ struct FActionExternalAdditionalHitEffectsApplyRequest
 
 public:
 	/** 这次请求准备写入 direct 层的命中效果集合。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffect", meta = (ToolTip = "这次请求准备直接写入目标槽位 direct 层的命中效果集合。它不带来源标签，也不带单独生命周期。"))
 	TArray<FActionHitEffectEntry> HitEffects;
 
 	/** 判断这份 direct 层请求是否至少带了一条待写入效果。 */
@@ -369,15 +369,15 @@ struct FActionExternalHitEffectSourceRuntimeState
 
 public:
 	/** 这条来源当前的正式语义数据。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "这条来源当前的正式语义数据，包括来源标签、适用范围和效果集合。"))
 	FActionExternalHitEffectSourceEntry SourceEntry;
 
 	/** 当前是否存在自动过期限制。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "当前这条来源是否存在自动过期限制。它是运行时生命周期元数据，不是资产作者手动长期维护的配置入口。"))
 	bool bHasDurationLimit = false;
 
 	/** 若存在自动过期限制，对应的世界到期时间。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HitEffectSource", meta = (ToolTip = "若存在自动过期限制，对应的世界到期时间。它是运行时元数据，不是资产配置入口。"))
 	float ExpireWorldTime = 0.f;
 
 	/** 自动过期计时器句柄。 */

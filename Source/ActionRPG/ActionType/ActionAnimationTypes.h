@@ -27,23 +27,23 @@ struct FActionAttackClipConfig
 
 public:
 	/** 当前攻击段实际播放的蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前攻击段实际播放的蒙太奇。留空时这段 AttackClip 无法正式起手。"))
 	TSoftObjectPtr<UAnimMontage> AttackMontage;
 
 	/** 当前攻击段需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ClampMin = "0", ToolTip = "当前攻击段需要多高优先级的受击才能接管自己。值越高，越不容易在演出中被普通受击打断。"))
 	int32 MinIncomingReactPriorityToInterrupt = 0;
 
 	/** 当前攻击段正式使用的命中配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前攻击段正式使用的命中配置。普通攻击现在只认 Clip 级 HitConfig，不再回退到武器级全局 HitConfig。"))
 	FActionWeaponHitConfig HitConfig;
 
 	/** 当前攻击段是否会在动画通知帧额外生成发射物。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile", meta = (ToolTip = "当前攻击段是否会在指定动画通知时额外生成发射物。关闭时下面的条目级发射物配置不会被消费。"))
 	bool bShouldSpawnProjectile = false;
 
 	/** 当前攻击段的发射物生成配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile", meta = (EditCondition = "bShouldSpawnProjectile", EditConditionHides))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile", meta = (EditCondition = "bShouldSpawnProjectile", EditConditionHides, ToolTip = "当前攻击段的发射物生成配置。只有 bShouldSpawnProjectile 为 true 时才会参与正式解析。"))
 	FActionProjectileSpawnConfig ProjectileSpawnConfig;
 
 public:
@@ -88,15 +88,15 @@ struct FActionWeaponSwitchClipConfig
 
 public:
 	/** 当前切武表现段实际播放的蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch", meta = (ToolTip = "当前切武表现段实际播放的蒙太奇。留空时这条切武表现段无效。"))
 	TSoftObjectPtr<UAnimMontage> WeaponSwitchMontage;
 
 	/** 当前切武表现段需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch", meta = (ClampMin = "0", ToolTip = "当前切武表现段需要多高优先级的受击才能接管自己。"))
 	int32 MinIncomingReactPriorityToInterrupt = 0;
 
 	/** 当前切武表现段正式使用的命中配置。只有动画上显式放了 HitWindow 才会被消费。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch", meta = (ToolTip = "当前切武表现段正式使用的命中配置。只有切武蒙太奇上显式存在 HitWindow 通知时才会被消费。"))
 	FActionWeaponHitConfig HitConfig;
 
 public:
@@ -142,31 +142,31 @@ struct FActionAttackEntryConfig
 
 public:
 	/** 当前条目对应的攻击请求标签。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前条目对应的攻击请求标签，例如默认攻击、长按重击、闪避反击、冲刺攻击或空中攻击。"))
 	FGameplayTag RequestTag = ActionGameplayTags::Attack_Request_Default;
 
 	/** 当前请求最终落到的攻击分支语义标签。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前请求最终路由到的攻击分支标签。通常与 RequestTag 保持一对一的正式语义映射。"))
 	FGameplayTag BranchTag = ActionGameplayTags::Attack_Branch_Light;
 
 	/** 当前请求真正允许出招的输入阶段。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前请求真正允许出招的输入阶段。运行时会用它判断是按下、释放还是长按才正式触发这条攻击。"))
 	EActionInputEvent TriggerInputEvent = EActionInputEvent::Released;
 
 	/** 当前条目可使用的攻击段落集合。普通攻击连段按 ComboIndex 选择 Clip。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前条目可使用的攻击段落集合。启用连段索引后，运行时会按 ComboIndex 选择具体 AttackClip。"))
 	TArray<FActionAttackClipConfig> AttackClips;
 
 	/** 当前条目是否按连段索引读取攻击段落。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前条目是否按连段索引选择攻击段落。关闭时无论当前 ComboIndex 是多少，都只读取第 0 个 AttackClip。"))
 	bool bUseComboIndex = false;
 
 	/** 当前条目播放成功后是否推进一次连段索引。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前条目成功起手后是否推进一次连段索引。通常普通轻击连段会开启它。"))
 	bool bAdvanceComboIndexOnPlay = false;
 
 	/** 当前条目播放前是否先把连段索引重置为 0。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前条目播放前是否先把连段索引重置为 0。通常重击、闪避反击和空中攻击会用它来避免串用普通轻击连段索引。"))
 	bool bResetComboIndexOnPlay = false;
 
 public:
@@ -226,8 +226,9 @@ public:
 };
 
 /**
- * 一次攻击段落解析后的运行时结果。
- * 运行时只消费这份“已解析好的执行计划”，避免在多个系统里重复拼装条件。
+ * 一次攻击段落解析后的只读执行计划。
+ * 它只表示“当前请求 + 当前连段索引”在静态模板里最终读出了什么，
+ * 供攻击 GA 与攻击组件复用，不在这里保存长期攻击状态或命中结果。
  */
 USTRUCT(BlueprintType)
 struct FActionResolvedAttackExecutionConfig
@@ -236,45 +237,45 @@ struct FActionResolvedAttackExecutionConfig
 
 public:
 	// 已解析的攻击执行计划：
-	// 进入运行时后，攻击 GA 与攻击组件优先消费这份结构，而不是反复回头重查静态模板数组。
+	// 进入运行时后，攻击 GA 与攻击组件优先消费这份“本次读取结果”，而不是反复回头重查静态模板数组。
 	/** 这次攻击实际落到的分支标签。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "这次攻击请求最终解析到的分支标签。它只是本次读取结果，不是长期攻击运行态。"))
 	FGameplayTag BranchTag = ActionGameplayTags::Attack_Branch_Light;
 
 	/** 这次攻击实际要播放的蒙太奇。 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "这次攻击最终解析出的蒙太奇资源。它来自静态模板读取结果，不代表动画已经成功播放。"))
 	TObjectPtr<UAnimMontage> ResolvedMontage = nullptr;
 
 	/** 当前分支是否按连段索引选择蒙太奇。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前分支是否按连段索引解释 AttackClips。它只是把静态模板翻译成执行计划的结果。"))
 	bool bUseComboIndex = false;
 
 	/** 当前分支播放成功后是否推进连段索引。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前分支若成功起手，是否建议推进连段索引。它是本次读取到的静态规则，不是运行时推进结果。"))
 	bool bAdvanceComboIndexOnPlay = false;
 
 	/** 当前分支播放前是否先重置连段索引。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前分支播放前是否建议先把连段索引重置为 0。它是静态配置解释结果，不是实际重置提交点。"))
 	bool bResetComboIndexOnPlay = false;
 
 	/** 当前分支可用的蒙太奇总数，主要用于推进连段索引。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "当前分支模板里可用的 AttackClip 数量。主要用于解释后续连段推进，不是长期状态缓存。"))
 	int32 MontageCount = 0;
 
 	/** 这次攻击最终要结算的命中参数。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "这次攻击最终解析出的命中配置。它只是本次读取结果，不是命中结算后的反馈快照。"))
 	FActionWeaponHitConfig ResolvedHitConfig;
 
 	/** 这次攻击段允许被来袭受击接管的阈值。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "这次攻击段读取到的受击接管阈值。它只表达静态模板要求，不代表当前已进入受击裁决。"))
 	int32 MinIncomingReactPriorityToInterrupt = 0;
 
 	/** 当前攻击段落是否需要在指定动画帧生成发射物。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile", meta = (ToolTip = "这次攻击段落是否需要在指定动画帧生成发射物。它只表示本次读取结果，不代表发射物已经生成。"))
 	bool bShouldSpawnProjectile = false;
 
 	/** 当前攻击段落最终解析出的发射物生成配置。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WeaponAnimation|Attack|Projectile", meta = (ToolTip = "这次攻击段落最终解析出的发射物生成配置。它只是本次读取结果，不是发射物实例状态。"))
 	FActionProjectileSpawnConfig ResolvedProjectileSpawnConfig;
 
 public:
@@ -297,35 +298,35 @@ struct FActionHitWindowTemplateConfig
 
 public:
 	/** 模板名。动画通知通过这个名字解析模板。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (ToolTip = "命中窗口模板名。动画通知通过这个名字解析模板；同一把武器内应保持唯一。"))
 	FName TemplateName = NAME_None;
 
 	/** 当前模板是否同时驱动武器碰撞检测。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (ToolTip = "当前模板是否同时驱动武器碰撞检测。关闭后只消费显式启用的命中源列表。"))
 	bool bUseWeaponCollisionDetection = true;
 
 	/** 当前模板额外启用的命中源列表。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (DisplayName = "EnabledHitSourceIds"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (DisplayName = "EnabledHitSourceIds", ToolTip = "当前模板额外启用的命中源枚举列表。适合补充武器碰撞之外的点位、范围或自定义命中源。"))
 	TArray<EActionHitSourceId> EnabledHitSourceIdEnums;
 
 	/** 当前模板额外启用的命中源组列表。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (DisplayName = "EnabledHitSourceGroupIds"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (DisplayName = "EnabledHitSourceGroupIds", ToolTip = "当前模板额外启用的命中源组列表。适合批量启用一组相关命中源。"))
 	TArray<EActionHitSourceGroupId> EnabledHitSourceGroupIdEnums;
 
 	/** 当前模板内同一来源对同一目标的结算策略。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (ToolTip = "当前模板内同一来源对同一目标的结算策略，例如单次命中或持续接触重复结算。"))
 	EActionHitWindowResolvePolicy ResolvePolicy = EActionHitWindowResolvePolicy::SingleHitPerSourceTarget;
 
 	/** 当使用持续接触重复结算策略时，两次结算之间的最小间隔。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (ClampMin = "0.01", EditCondition = "ResolvePolicy == EActionHitWindowResolvePolicy::IntervalWhileOverlapping", EditConditionHides))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (ClampMin = "0.01", UIMin = "0.01", EditCondition = "ResolvePolicy == EActionHitWindowResolvePolicy::IntervalWhileOverlapping", EditConditionHides, ToolTip = "持续接触重复结算时，两次结算之间的最小间隔。只在 ResolvePolicy 选择 IntervalWhileOverlapping 时可配置；普通单次命中模板不需要填写这里。"))
 	float RepeatResolveInterval = 0.2f;
 
 	/** 当前模板是否显式覆写默认命中配置里的击退强度。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow|Hit")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow|Hit", meta = (ToolTip = "当前模板是否显式覆写默认命中配置里的击退强度。关闭时继续沿用 HitConfig 或更上层模板里的正式击退配置。"))
 	bool bOverrideKnockbackStrength = false;
 
 	/** 当模板显式覆写击退时，本窗口最终使用的击退强度。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow|Hit", meta = (ClampMin = "0.0", EditCondition = "bOverrideKnockbackStrength", EditConditionHides))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow|Hit", meta = (ClampMin = "0.0", UIMin = "0.0", EditCondition = "bOverrideKnockbackStrength", EditConditionHides, ToolTip = "当模板显式覆写击退时，本窗口最终使用的击退强度。只在 bOverrideKnockbackStrength 为 true 时可配置。"))
 	float OverrideKnockbackStrength = 0.f;
 
 public:
@@ -421,19 +422,19 @@ struct FActionExecutionConfig
 
 public:
 	/** 执行者侧真正播放的处决蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ToolTip = "执行者侧真正播放的处决蒙太奇。留空时这份处决配置无法正式开播。"))
 	TSoftObjectPtr<UAnimMontage> ExecutionMontage;
 
 	/** 目标在正式开播前被强制转向执行者的时长。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "处决正式开播前，目标被强制转向执行者的最长时长。设为 0 表示不额外等待目标转向完成。"))
 	float VictimTurnDurationSeconds = 0.f;
 
 	/** 双边处决开播前期望保持的水平距离；只有大于当前实际距离时才会尝试补距。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "双边处决正式开播前希望保持的水平距离。只有大于当前实际距离时，运行时才会尝试补距；若不想额外挪位，可保持 0。"))
 	float ExecutionStartDistance = 0.f;
 
 	/** 处决正式命中时使用的专用命中配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ToolTip = "处决正式命中时使用的专用命中配置。处决不再回退到普通攻击 HitConfig。"))
 	FActionExecutionHitConfig HitConfig;
 
 public:
@@ -456,9 +457,9 @@ public:
 };
 
 /**
- * 武器动画配置。
- * 装备该武器后需要用到的动画层、攻击分支、闪避、防御和特殊切武资源都收口在这里。
- * 处决已经提升为独立配置，不再和普通动画入口混放。
+ * 武器动画静态总配置。
+ * 这里是 WeaponDefinition 侧攻击、命中窗口、姿态切换、闪避、防御与切武表现的正式静态入口；
+ * 对外公开的解析接口只返回“当前读取结果”，不在这里自持任何运行时状态。
  */
 USTRUCT(BlueprintType)
 struct FActionWeaponAnimationConfig
@@ -469,67 +470,63 @@ public:
 	// 武器动画资源主体：
 	// 这些字段共同描述一把武器在攻击、闪避、防御与特殊切武时要用到的全部动画入口。
 	/** 装备该武器时需要挂接到角色身上的动画层。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "装备该武器时需要挂接到角色身上的动画层。它决定当前武器在主 ABP 上叠哪套表现逻辑。"))
 	TSoftClassPtr<UActionHeroLinkedAnimLayer> LinkedAnimLayer;
 
 	/** 正式攻击条目配置集合。当前运行时优先消费这组数据。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|Attack", meta = (ToolTip = "正式攻击条目配置集合。当前运行时优先消费这组数据，不再靠旧分散字段拼装攻击链。"))
 	TArray<FActionAttackEntryConfig> AttackEntryConfigs;
 
 	/** 命中窗口模板集合。用于给多个动画通知复用同一套命中源和结算策略。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|HitWindow", meta = (ToolTip = "可复用的命中窗口模板集合。动画通知可按模板名直接引用，避免每个 Notify 都手填同一套命中源和结算策略。"))
 	TArray<FActionHitWindowTemplateConfig> HitWindowTemplateConfigs;
 
 	/** 姿态切换蒙太奇：Idle -> Combo。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "姿态切换蒙太奇：Idle -> Combo。若当前主动链允许从 Idle 直接起手，这条蒙太奇就是进入战斗姿态的正式表现入口。"))
 	TSoftObjectPtr<UAnimMontage> EnterCombatModeMontage;
 
 	/** 进入战斗姿态动画需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0", ToolTip = "进入战斗姿态动画需要多高优先级的受击才能接管自己。"))
 	int32 EnterCombatModeMinIncomingReactPriorityToInterrupt = 0;
 
 	/** 姿态切换蒙太奇：Combo -> Idle。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "姿态切换蒙太奇：Combo -> Idle。留空时当前武器退出战斗姿态不会有独立退场演出。"))
 	TSoftObjectPtr<UAnimMontage> ExitCombatModeMontage;
 
 	/** 退出战斗姿态动画需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0", ToolTip = "退出战斗姿态动画需要多高优先级的受击才能接管自己。"))
 	int32 ExitCombatModeMinIncomingReactPriorityToInterrupt = 0;
 
 	/** 原地闪避蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "原地闪避蒙太奇。只在角色当前没有移动输入时作为正式闪避表现入口。"))
 	TSoftObjectPtr<UAnimMontage> StandingDodgeMontage;
 
 	/** 原地闪避动画需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0", ToolTip = "原地闪避动画需要多高优先级的受击才能接管自己。"))
 	int32 StandingDodgeMinIncomingReactPriorityToInterrupt = 0;
 
 	/** 移动闪避蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "移动闪避蒙太奇。只在角色当前存在移动输入时作为正式闪避表现入口。"))
 	TSoftObjectPtr<UAnimMontage> MovingDodgeMontage;
 
 	/** 移动闪避动画需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0", ToolTip = "移动闪避动画需要多高优先级的受击才能接管自己。"))
 	int32 MovingDodgeMinIncomingReactPriorityToInterrupt = 0;
 
 	/** 防御蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "防御蒙太奇。它是当前武器正式防御起手的表现入口，不负责长期持盾/持续防御状态源。"))
 	TSoftObjectPtr<UAnimMontage> DefenseMontage;
 
 	/** 防御动画需要多高优先级的受击才能接管自己。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ClampMin = "0", ToolTip = "防御动画需要多高优先级的受击才能接管自己。"))
 	int32 DefenseMinIncomingReactPriorityToInterrupt = 0;
 
 	/** 普通格挡命中后的单次受击蒙太奇。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation", meta = (ToolTip = "普通格挡命中后的单次受击蒙太奇。"))
 	TSoftObjectPtr<UAnimMontage> BlockedHitMontage;
 
-	/** 普通切武表现段配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch")
-	FActionWeaponSwitchClipConfig NormalWeaponSwitchClip;
-
 	/** 特殊切武表现段配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponAnimation|WeaponSwitch", meta = (ToolTip = "特殊切武表现段配置。用于特殊切武或带额外表现的切武链。"))
 	FActionWeaponSwitchClipConfig SpecialWeaponSwitchClip;
 
 public:
@@ -616,7 +613,7 @@ public:
 		return EActionInputEvent::Released;
 	}
 
-	/** 按攻击请求标签与当前连段索引直接解析已解析执行计划。 */
+	/** 按攻击请求标签与当前连段索引直接解析一份本次读取到的执行计划。 */
 	bool TryResolveAttackExecutionConfigByRequestTag(
 		const FGameplayTag& InRequestTag,
 		const int32 InComboIndex,
@@ -638,7 +635,7 @@ public:
 		return false;
 	}
 
-	/** 只按攻击请求标签从静态模板中读取正式命中配置。 */
+	/** 只按攻击请求标签从静态模板中读取正式命中配置，不在这里缓存长期运行态。 */
 	bool TryResolveAttackHitConfigByRequestTag(
 		const FGameplayTag& InRequestTag,
 		FActionWeaponHitConfig& OutHitConfig) const
@@ -666,7 +663,7 @@ public:
 		return false;
 	}
 
-	/** 按攻击分支标签与当前连段索引解析已解析执行计划。 */
+	/** 按攻击分支标签与当前连段索引解析一份本次读取到的执行计划。 */
 	bool TryResolveAttackExecutionConfig(
 		const FGameplayTag& InBranchTag,
 		const int32 InComboIndex,
@@ -702,7 +699,7 @@ public:
 		return 0;
 	}
 
-	/** 按模板名把静态命中窗口模板解析成正式运行时窗口配置。 */
+	/** 按模板名把静态命中窗口模板桥接成运行时窗口配置，不在这里打开窗口。 */
 	bool TryResolveHitWindowConfigByName(
 		const FName InTemplateName,
 		const FName InRuntimeWindowName,
@@ -783,24 +780,6 @@ public:
 		return BlockedHitMontage.Get();
 	}
 
-	/** 只读取静态普通切武蒙太奇。 */
-	UAnimMontage* GetNormalWeaponSwitchMontage() const
-	{
-		return NormalWeaponSwitchClip.GetMontage();
-	}
-
-	/** 只读取静态普通切武受击接管阈值。 */
-	int32 GetNormalWeaponSwitchReactGuardThreshold() const
-	{
-		return NormalWeaponSwitchClip.MinIncomingReactPriorityToInterrupt;
-	}
-
-	/** 只读取静态普通切武命中配置。 */
-	const FActionWeaponHitConfig& GetNormalWeaponSwitchHitConfig() const
-	{
-		return NormalWeaponSwitchClip.GetHitConfig();
-	}
-
 	/** 只读取静态特殊切武蒙太奇。 */
 	UAnimMontage* GetSpecialWeaponSwitchMontage() const
 	{
@@ -867,7 +846,6 @@ public:
 			OutAssetPaths.AddUnique(BlockedHitMontage.ToSoftObjectPath());
 		}
 
-		NormalWeaponSwitchClip.CollectSoftObjectPaths(OutAssetPaths);
 		SpecialWeaponSwitchClip.CollectSoftObjectPaths(OutAssetPaths);
 	}
 
@@ -973,17 +951,20 @@ struct FCharacterAnimInstanceProxy : public FAnimInstanceProxy
 	/** 游戏线程写入的速度镜像，不是正式移动状态源。 */
 	FVector Velocity = FVector::ZeroVector;
 
-	/** 当前加速度大小镜像。 */
+	/** 当前加速度大小镜像，不替代 CharacterMovement 的正式底层移动状态。 */
 	float CurrentAcceleration = 0.f;
 
 	/** 当前战斗模式镜像，供 ABP 消费，不反向驱动业务状态。 */
 	EHeroCombatMode CombatMode = EHeroCombatMode::Idle;
 
-	/** 当前移动状态镜像，供 ABP 消费。 */
+	/** 当前移动状态镜像，供 ABP 消费，不替代控制器侧正式移动输入镜像。 */
 	EMoveState MoveState = EMoveState::Walk;
 
+	/** 游戏线程向动画线程同步只读镜像的入口钩子。 */
 	virtual void PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds) override;
+	/** 动画线程消费前更新当前帧镜像。 */
 	virtual void Update(float DeltaSeconds) override;
+	/** 当前帧镜像同步完成后的收尾钩子。 */
 	virtual void PostUpdate(UAnimInstance* InAnimInstance) const override;
 };
 
@@ -1003,10 +984,13 @@ struct FHeroAnimInstanceProxy : public FCharacterAnimInstanceProxy
 	{
 	}
 
-	/** 当前是否处于下落状态的镜像。 */
+	/** 当前是否处于下落状态的镜像，不替代 CharacterMovement 的正式 Falling 状态。 */
 	bool bIsFalling = false;
 
+	/** 在基础代理镜像上补充 Hero 专用只读镜像的同步入口。 */
 	virtual void PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds) override;
+	/** 更新 Hero 动画线程本帧要消费的附加镜像。 */
 	virtual void Update(float DeltaSeconds) override;
+	/** Hero 专用镜像同步完成后的收尾钩子。 */
 	virtual void PostUpdate(UAnimInstance* InAnimInstance) const override;
 };

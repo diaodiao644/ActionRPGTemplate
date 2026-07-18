@@ -31,8 +31,9 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnHeroWeaponLoadoutEquipFailed, EHeroWeapon
  * 1. 管理固定武器槽配置、当前装备快照、能力授予/回收与高层装备语义；
  * 2. 作为装备域统一 public/Blueprint 入口，对外收口装备、高层切武能量与当前装备快照；
  * 3. 资源加载、资源预热、实例生命周期与挂起自动装备请求，已经迁入 HeroLoadoutRuntimeComponent；
- * 4. 属性缓存 / 发射物标签、外部命中效果生命周期、启动状态机与 UI 快照桥，继续分别由独立组件承接。
- * 5. 后续优化重点转为减小 Runtime / Context / State / Effect 协作网密度，不再新增装备域宿主拆分。
+ * 4. 属性缓存 / 发射物标签、外部命中效果生命周期、启动状态机与 UI 快照桥，继续分别由独立组件承接；
+ * 5. `LoadoutRuntimeStatesBySlot` 只是各固定槽的 equipment 局部运行时壳；对外真正该读的是 `EquippedWeaponState` 这份当前正式结果快照；
+ * 6. 后续优化重点转为减小 Runtime / Context / State / Effect 协作网密度，不再新增装备域宿主拆分。
  */
 UCLASS(ClassGroup = (Action), meta = (BlueprintSpawnableComponent))
 class ACTIONRPG_API UHeroEquipmentComponent : public UPawnExtensionComponentBase
@@ -57,7 +58,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|Equipment")
 	bool SetWeaponDefinitionForLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot, const TSoftObjectPtr<UDataAsset_WeaponDefinition>& InWeaponDefinition);
 
-	/** 按固定武器槽请求装备武器；它是正式切槽入口，返回 true 既可能是同步切完，也可能是异步链路已成功挂起。 */
+	/** 按固定武器槽请求装备武器；当前战斗期切武只接受同步 ready 槽位，成功返回 true 即表示本次真实换装已落地。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Equipment")
 	bool EquipWeaponByLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
@@ -68,11 +69,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
 	bool HasWeaponAssignedToLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
-	/** 获取当前装备状态的统一同步快照。对外正式只读 EquippedWeaponState 这一份当前生效结果。 */
+	/** 获取当前装备状态的统一同步快照。对外正式只读 EquippedWeaponState 这一份当前生效结果，不要反向拼各槽 runtime。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
 	FHeroEquippedWeaponState GetCurrentEquippedWeaponState() const;
 
-	/** 读取某个固定武器槽的配置定义。 */
+	/** 读取某个固定武器槽的静态配置定义。它返回的是槽位资产入口，不是当前异步加载或装备结果快照。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
 	bool GetWeaponLoadoutDefinition(EHeroWeaponLoadoutSlot InLoadoutSlot, FHeroWeaponLoadoutDefinition& OutLoadoutDefinition) const;
 
@@ -88,13 +89,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
 	bool IsSpecialWeaponSwitchReady() const;
 
-	/** 获取目标固定武器槽武器的特殊切武动画。继续作为高层切武语义的一部分保留。 */
+	/** 获取目标固定武器槽武器的特殊切武动画。它只读取当前配置资格，不推进真实切武事务。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
 	UAnimMontage* GetSpecialWeaponSwitchMontageForLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
-
-	/** 获取目标固定武器槽武器的普通切武动画。继续作为装备域高层公共语义保留。 */
-	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
-	UAnimMontage* GetNormalWeaponSwitchMontageForLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
 	/** 消耗一次特殊切武所需的独立能量。继续作为装备总控高层能量写入口保留。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Equipment")
@@ -115,43 +112,43 @@ protected:
 protected:
 	/** 基础访问与状态查找辅助。 */
 
-	/** 注册一条固定武器槽配置。它只建立槽位定义与子组件运行时骨架，不代表武器已加载或已装备。 */
+	/** 注册一条固定武器槽配置。它只建立槽位定义与子组件运行时骨架，不代表武器已加载、runtime ready 或已正式装备。 */
 	bool RegisterWeaponLoadoutDefinition(const FHeroWeaponLoadoutDefinition& InWeaponLoadoutDefinition);
 
-	/** 获取拥有者英雄角色。 */
+	/** 获取拥有者英雄角色。它只是正式宿主解析入口，不表达装备域阶段状态。 */
 	AActionHeroCharacter* GetOwningHeroCharacter() const;
 
-	/** 获取拥有者 ASC。 */
+	/** 获取拥有者 ASC。只服务能力授予/回收，不承接装备域正式状态。 */
 	UActionAbilitySystemComponent* GetOwningActionAbilitySystemComponent() const;
 
-	/** 获取拥有者属性集。 */
+	/** 获取拥有者属性集。当前只服务特殊切武能量等高层装备语义读取。 */
 	UActionAttributeSetBase* GetOwningAttributeSet() const;
 
-	/** 获取装备域资源链 / 实例链运行时组件。 */
+	/** 获取装备域资源链 / 实例链运行时组件。equipment 只向它委托加载、预热与实例解析。 */
 	UHeroLoadoutRuntimeComponent* GetOwningHeroLoadoutRuntimeComponent() const;
 
-	/** 获取装备域属性缓存 / 发射物标签上下文组件。 */
+	/** 获取装备域属性缓存 / 发射物标签上下文组件。equipment 自身不再维护第二份属性缓存或发射物标签状态。 */
 	UHeroLoadoutContextComponent* GetOwningHeroLoadoutContextComponent() const;
 
-	/** 查找指定固定武器槽的运行时状态。 */
+	/** 查找指定固定武器槽的 equipment 局部运行时壳。它只服务槽位配置与能力镜像，不替代当前装备正式快照。 */
 	FHeroWeaponLoadoutRuntimeState* FindRuntimeState(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
-	/** 查找指定固定武器槽的只读运行时状态。 */
+	/** 查找指定固定武器槽的只读 equipment 局部运行时壳。 */
 	const FHeroWeaponLoadoutRuntimeState* FindRuntimeState(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
 	/** 校验某把武器是否符合某个固定武器槽的武器类别要求。 */
 	bool DoesWeaponDefinitionMatchLoadoutSlot(const UDataAsset_WeaponDefinition* InWeaponDefinition, EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
-	/** 广播当前装备状态变化，统一驱动战斗组件等外部订阅者刷新状态。 */
+	/** 广播当前装备状态变化，统一驱动战斗组件、装配桥和 UI 等外部订阅者刷新状态。 */
 	void BroadcastCurrentWeaponStateChanged() const;
-	/** 桥接 startup ready 广播到 state 宿主。 */
+	/** 桥接 startup ready 广播到 state 宿主。equipment 不单独维护第二套 startup 状态机。 */
 	void BroadcastWeaponLoadoutStartupReady() const;
 	/** 桥接 startup failed 广播到 state 宿主。 */
 	void BroadcastWeaponLoadoutStartupFailed(EHeroWeaponLoadoutSlot InLoadoutSlot, const FString& InFailureReason) const;
-	/** 桥接 UI 脏标记广播到 state 宿主。 */
+	/** 桥接 UI 脏标记广播到 state 宿主；真正的 UI 快照构建仍由 LoadoutState 负责。 */
 	void BroadcastLoadoutUIStateChanged() const;
 
-	/** 真正执行装备逻辑。只有这里会把解析完成的目标武器正式写入 EquippedWeaponState。 */
+	/** 真正执行装备逻辑。只有这里会把解析完成的目标武器正式写入 EquippedWeaponState，并切换当前生效武器结果。 */
 	bool EquipResolvedLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot, UDataAsset_WeaponDefinition* InWeaponDefinition);
 
 	/** 向角色请求切换武器实例的显示、碰撞与挂点状态。它只桥接表现，不承担切槽事务。 */
@@ -168,7 +165,7 @@ protected:
 	/** 在初始化阶段授予指定固定武器槽的专属战斗能力。固定槽能力当前按常驻模型处理。 */
 	void GrantLoadoutAbilities(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
-	/** 在重置负载或组件销毁时回收指定固定武器槽的专属战斗能力。 */
+	/** 在重置负载或组件销毁时回收指定固定武器槽的专属战斗能力。它只清常驻槽位能力，不处理当前武器定义的额外能力。 */
 	void RemoveLoadoutAbilities(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
 	/** 在当前武器真正装备到手时，授予该武器定义额外带来的能力。它跟随当前已装备武器，而不是槽位永久常驻。 */
@@ -187,18 +184,18 @@ protected:
 	void BroadcastWeaponLoadoutEquipFailed(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
 protected:
-	/** 当前角色所有固定武器槽的完整运行时状态。 */
+	/** 当前角色所有固定武器槽的 equipment 局部运行时壳。它服务固定槽定义、能力镜像与局部缓存，不直接对外充当正式当前装备态。 */
 	UPROPERTY()
 	TMap<EHeroWeaponLoadoutSlot, FHeroWeaponLoadoutRuntimeState> LoadoutRuntimeStatesBySlot;
 
 	// 当前已装备快照：
 	// 对外部战斗链、动画链和调试层来说，真正应该读取的是这一份“当前生效状态”，
 	// 而不是自己去拼接各个槽位运行时数据。
-	/** 当前真正装备中的武器实例、槽位与武器 Tag 运行时状态。 */
+	/** 当前真正装备中的武器实例、槽位与武器 Tag 运行时状态。它才是对外正式应读的当前装备结果快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Equipment")
 	FHeroEquippedWeaponState EquippedWeaponState;
 
-	/** 避免重复初始化默认固定武器槽。 */
+	/** 避免重复初始化默认固定武器槽。固定槽注册与常驻能力授予当前只允许跑一次。 */
 	bool bWeaponLoadoutInitialized = false;
 
 private:

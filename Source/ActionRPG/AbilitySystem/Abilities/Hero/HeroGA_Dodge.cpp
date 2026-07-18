@@ -20,17 +20,6 @@ UHeroGA_Dodge::UHeroGA_Dodge()
 	// 在原生构造函数里固定声明闪避 AbilityTag，避免蓝图侧遗漏配置。
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_Dodge);
 	ActivationOwnedTags.AddTag(ActionGameplayTags::State_Ability_Dodge_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Execution_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_SpiritSkill_Active);
-
-	// 闪避属于高于普通攻击/防御的保命动作，但仍低于处决这类更强强制行为。
-	AbilityPriority = 30;
-	bCanInterruptLowerPriorityAbilities = true;
-	bCanInterruptSamePriorityAbilities = false;
-	bCanBeInterruptedByHigherPriority = true;
-	bCanBeInterruptedBySamePriority = false;
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_Attack);
-	CancelAbilitiesWithTag.AddTag(ActionGameplayTags::Player_Ability_CombatModeOrDefense);
 	CombatReactAbilityRule.bAllowActivationDuringRecoveryCancelWindow = true;
 
 	// 闪避期间的临时战斗状态统一收口到这份分支级修正效果里。
@@ -57,20 +46,13 @@ bool UHeroGA_Dodge::ValidateRelationshipActivationPreconditions(FString& OutFail
 		return false;
 	}
 
-	if (!HeroDefenseComponent->CanActivateNonAttackInputNow(ActionGameplayTags::InputTag_GameplayAbility_Dodge))
+	if (!HeroDefenseComponent->CanEnterRelationshipActivationForNonAttackInput(
+		ActionGameplayTags::InputTag_GameplayAbility_Dodge,
+		&OutFailureReason))
 	{
-		// 闪避无论来自即时输入、缓冲回放还是别的间接触发路径，
-		// 当前战斗态的统一门禁都应该落在关系系统预检里，而不是只靠输入层局部判断。
-		// 这样非攻击输入链就始终由同一套门禁裁决，不会因为入口不同而出现一套绕过正式规则的旁路。
-		if (UHeroCombatComponent* HeroCombatComponent = GetHeroCombatComponentFromActorInfo())
-		{
-			OutFailureReason =
-				HeroCombatComponent->DescribeNonAttackInputGateForDebug(ActionGameplayTags::InputTag_GameplayAbility_Dodge);
-		}
-		else
-		{
-			OutFailureReason = TEXT("dodge input is blocked by current combat state");
-		}
+		// 闪避当前只在关系裁决前保留共享硬门禁。
+		// 是否能抢入活跃主动 GA，统一交回 ASC 关系矩阵和 interrupt-window 裁决。
+		// 也就是说，这里拦下的是“宿主当前绝对不能起闪避”，不是“Attack 没给白名单所以闪避不许进 ASC”。
 		return false;
 	}
 

@@ -5,9 +5,12 @@
 #include "AnimInstance/Hero/ActionHeroLinkedAnimLayer.h"
 #include "Characters/ActionHeroCharacter.h"
 #include "Components/Character/HeroAssemblyComponent.h"
+#include "Components/Combat/HeroAttackComponent.h"
 #include "Components/Combat/HeroCombatComponent.h"
 #include "Components/Combat/HeroCombatInputComponent.h"
 #include "Components/Equipment/HeroEquipmentComponent.h"
+#include "Components/Equipment/HeroLoadoutRuntimeComponent.h"
+#include "Debug/ActionDebugHelper.h"
 #include "Engine/World.h"
 #include "Items/Weapons/HeroWeaponBase.h"
 
@@ -30,11 +33,11 @@ void UHeroWeaponSwitchComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 {
 	// 角色销毁或组件退场时，把切武请求、事务态、表现态和延迟恢复标记一起清掉。
 	// 这里的目标不是“回退业务状态”，而是防止下一帧晚到回调继续命中一个已失效组件。
-	WeaponSwitchPresentationState.Clear();
+	SpecialWeaponSwitchPresentationState.Clear();
 	WeaponSwitchTransactionState.Clear();
 	WeaponSwitchRequest.Clear();
-	bDeferredQueuedWeaponSwitchConsumeRequested = false;
 	bDeferredCombatInputRecoveryAfterPresentationRequested = false;
+	ClearPendingNormalWeaponSwitchAttackHandoff();
 	UnbindEquipmentStateDelegates();
 	Super::EndPlay(EndPlayReason);
 }
@@ -149,7 +152,7 @@ bool UHeroWeaponSwitchComponent::IsWeaponSwitchBlockedByCombatState(const FGamep
 		return true;
 	}
 
-	if (!InputTag.IsValid() || IsWeaponSwitchPresentationActive() || IsWeaponSwitchTransactionInProgress())
+	if (!InputTag.IsValid() || IsSpecialWeaponSwitchPresentationActive() || IsWeaponSwitchTransactionInProgress())
 	{
 		// 无效输入、表现期播放中、事务推进中三种状态都不允许再次起一笔新切武。
 		return true;
@@ -161,11 +164,11 @@ bool UHeroWeaponSwitchComponent::IsWeaponSwitchBlockedByCombatState(const FGamep
 		return true;
 	}
 
-	if (CombatComponent->IsAbilityCancelContextActive())
+	if (CombatComponent->IsInputOverrideContextActive())
 	{
-		// 如果当前动作处在取消上下文里，切武是否允许，要受当前取消窗口白名单控制。
+		// 如果当前动作处在输入改写上下文里，切武是否允许，要受当前抢断窗或恢复窗白名单控制。
 		// 这样切武能和攻击 / 防御 / 闪避共用一套“当前动作是否允许被抢占”的语义。
-		return !CombatComponent->IsAbilityCancelInputAllowedNow(InputTag);
+		return !CombatComponent->IsInputAllowedByCurrentOverrideContext(InputTag);
 	}
 
 	// 普通情况下，只有在战斗输入整体可用时才允许切武。
@@ -186,12 +189,12 @@ bool UHeroWeaponSwitchComponent::IsWeaponSwitchBlockedByCooldown() const
 bool UHeroWeaponSwitchComponent::CanActivateWeaponSwitchAbility(const FGameplayTag InputTag) const
 {
 	const UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent();
-	if (!CombatComponent || CombatComponent->IsNonAttackInputBlockedByAirborneState())
+	if (!CombatComponent)
 	{
 		return false;
 	}
 
-	return !IsWeaponSwitchBlockedByCombatState(InputTag) && !IsWeaponSwitchBlockedByCooldown();
+	return CombatComponent->PassesSharedNonAttackAbilityHardGate(InputTag) && !IsWeaponSwitchBlockedByCooldown();
 }
 
 bool UHeroWeaponSwitchComponent::TryCommitWeaponSwitchAbilityInput(
@@ -241,17 +244,22 @@ bool UHeroWeaponSwitchComponent::HandleWeaponLoadoutSlotInput(
 		return true;
 	}
 
-	if (WeaponSwitchPresentationState.bPresentationActive)
+	if (SpecialWeaponSwitchPresentationState.bPresentationActive)
 	{
-		// 特殊切武表现期里，新的槽位输入不立刻重新起能力，
-		// 而是挂到“表现结束后优先消费”的专用请求通道里。
-		// 也就是先把它落到 Request 层，等旧表现壳收尾后再决定要不要开启下一笔真实事务。
-		if (!QueueWeaponLoadoutSlotSwitch(InLoadoutSlot))
-		{
-			return true;
-		}
+		WeaponSwitchRequest.Clear();
+		return true;
+	}
 
-		WeaponSwitchRequest.MarkConsumeAfterPresentation();
+	FString FailureReason;
+	if (!CanSynchronouslyEquipLoadoutSlot(InLoadoutSlot, &FailureReason))
+	{
+		WeaponSwitchRequest.Clear();
+		const FString WarningMessage = FString::Printf(
+			TEXT("[WeaponSwitch] sync-ready precheck failed. slot=%d reason=%s"),
+			static_cast<int32>(InLoadoutSlot),
+			*FailureReason);
+		Debug::Print(WarningMessage, FColor::Orange, 2.5f);
+		UE_LOG(LogTemp, Warning, TEXT("%s"), *WarningMessage);
 		return true;
 	}
 
@@ -264,15 +272,12 @@ bool UHeroWeaponSwitchComponent::HandleWeaponLoadoutSlotInput(
 
 	// 只有在当前不处于表现期时，才允许这次槽位输入直接尝试起新的切武能力。
 	const bool bCommitted = TryCommitWeaponSwitchAbilityInput(InActionASC, InputTag);
-	if (!bCommitted && WeaponSwitchRequest.HasQueuedRequest() && IsWeaponSwitchBlockedByCooldown())
+	if (!bCommitted)
 	{
-		// 直接按槽位键切武时，如果只是被冷却暂时挡住，
-		// 也要沿用同一条延迟重试链，避免新的槽位请求覆盖旧请求后把自动重试链断掉。
-		RequestConsumeQueuedWeaponSwitchAfterPresentationOnNextTick();
-		return true;
+		WeaponSwitchRequest.Clear();
 	}
 
-	return bCommitted;
+	return true;
 }
 
 void UHeroWeaponSwitchComponent::InitializeCurrentWeaponStateFromEquipment()
@@ -322,6 +327,78 @@ bool UHeroWeaponSwitchComponent::ResolveWeaponSwitchTargetLoadoutSlot(
 	return WeaponSwitchRequest.ResolveQueuedLoadoutSlot(OutLoadoutSlot, bConsumeQueuedRequest);
 }
 
+bool UHeroWeaponSwitchComponent::CanSynchronouslyEquipLoadoutSlot(
+	const EHeroWeaponLoadoutSlot InLoadoutSlot,
+	FString* OutFailureReason) const
+{
+	if (OutFailureReason)
+	{
+		OutFailureReason->Reset();
+	}
+
+	const UHeroEquipmentComponent* EquipmentComponent = GetOwningHeroEquipmentComponent();
+	const UHeroLoadoutRuntimeComponent* LoadoutRuntimeComponent =
+		GetOwner() ? GetOwner()->FindComponentByClass<UHeroLoadoutRuntimeComponent>() : nullptr;
+	if (!EquipmentComponent)
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("equipment component is invalid");
+		}
+		return false;
+	}
+
+	if (EquipmentComponent->GetCurrentEquippedLoadoutSlot() == InLoadoutSlot)
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("target loadout slot is already equipped");
+		}
+		return false;
+	}
+
+	if (InLoadoutSlot != EHeroWeaponLoadoutSlot::Unarmed
+		&& !EquipmentComponent->HasWeaponAssignedToLoadoutSlot(InLoadoutSlot))
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("target loadout slot has no assigned weapon definition");
+		}
+		return false;
+	}
+
+	if (!LoadoutRuntimeComponent)
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("loadout runtime component is invalid");
+		}
+		return false;
+	}
+
+	const UDataAsset_WeaponDefinition* LoadedWeaponDefinition =
+		LoadoutRuntimeComponent->GetLoadedWeaponDefinitionByLoadoutSlot(InLoadoutSlot);
+	if (!LoadedWeaponDefinition)
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("target loadout definition is not loaded");
+		}
+		return false;
+	}
+
+	if (!LoadoutRuntimeComponent->IsLoadoutSlotRuntimeReady(InLoadoutSlot))
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = LoadoutRuntimeComponent->DescribeWeaponRuntimeAssetReadiness(LoadedWeaponDefinition);
+		}
+		return false;
+	}
+
+	return true;
+}
+
 bool UHeroWeaponSwitchComponent::CanUseSpecialWeaponSwitchForLoadoutSlot(
 	const EHeroWeaponLoadoutSlot InLoadoutSlot) const
 {
@@ -350,66 +427,70 @@ UAnimMontage* UHeroWeaponSwitchComponent::GetSpecialWeaponSwitchMontageForLoadou
 	return nullptr;
 }
 
-UAnimMontage* UHeroWeaponSwitchComponent::GetNormalWeaponSwitchMontageForLoadoutSlot(
-	const EHeroWeaponLoadoutSlot InLoadoutSlot) const
-{
-	if (const UHeroEquipmentComponent* EquipmentComponent = GetOwningHeroEquipmentComponent())
-	{
-		return EquipmentComponent->GetNormalWeaponSwitchMontageForLoadoutSlot(InLoadoutSlot);
-	}
-
-	return nullptr;
-}
-
-void UHeroWeaponSwitchComponent::BeginWeaponSwitchPresentation(const bool bIsSpecialPresentation)
+void UHeroWeaponSwitchComponent::BeginSpecialWeaponSwitchPresentation()
 {
 	// 表现期开始前先清一次旧状态，保证这次演出不会继承上一轮特殊切武标记。
 	// 这里重置的只有 Presentation 层，不会回滚已经成立的切武请求或真实事务结果。
-	WeaponSwitchPresentationState.Clear();
-	WeaponSwitchPresentationState.BeginPresentation(bIsSpecialPresentation);
+	SpecialWeaponSwitchPresentationState.Clear();
+	SpecialWeaponSwitchPresentationState.BeginPresentation();
 }
 
-void UHeroWeaponSwitchComponent::EndWeaponSwitchPresentation()
+void UHeroWeaponSwitchComponent::EndSpecialWeaponSwitchPresentation()
 {
-	if (!WeaponSwitchPresentationState.bPresentationActive)
+	if (!SpecialWeaponSwitchPresentationState.bPresentationActive)
 	{
 		return;
 	}
 
 	// 表现期结束并不代表上一笔切武事务失败，只是这层演出门禁已经收口。
-	// 后续优先级固定为：先处理表现期里排队的新切武请求，再恢复普通战斗输入。
-	WeaponSwitchPresentationState.Clear();
+	SpecialWeaponSwitchPresentationState.Clear();
+	WeaponSwitchRequest.Clear();
 
-	if (WeaponSwitchRequest.ShouldConsumeAfterPresentation())
+	if (bDeferredCombatInputRecoveryAfterPresentationRequested || !GetWorld())
 	{
-		// 如果表现期中途又收到新的槽位请求，
-		// 表现刚结束时优先处理这条排队切武，而不是先恢复普通输入。
-		RequestConsumeQueuedWeaponSwitchAfterPresentationOnNextTick();
 		return;
 	}
 
-	// 特殊切武表现结束时，对应的切武 GA 可能还没在本帧真正退场。
-	// 因此把输入恢复延后一帧，避免首帧恢复又被 WeaponSwitch.Active 标签拦回去。
-	RequestRecoverCombatInputAfterPresentationOnNextTick();
+	// 特殊切武表现结束时，对应的 WeaponSwitch GA 仍可能在本帧退场，
+	// 因此这里只给特殊切武保留一层最小的下一帧恢复。
+	bDeferredCombatInputRecoveryAfterPresentationRequested = true;
+	GetWorld()->GetTimerManager().SetTimerForNextTick(
+		this,
+		&ThisClass::HandleDeferredRecoverCombatInputAfterPresentation);
+}
+
+void UHeroWeaponSwitchComponent::ArmPendingNormalWeaponSwitchAttackHandoff(
+	const EHeroWeaponLoadoutSlot InLoadoutSlot)
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	DeferredNormalWeaponSwitchAttackTargetLoadoutSlot = InLoadoutSlot;
+	DeferredNormalWeaponSwitchAttackHandoffToken = ++NextNormalWeaponSwitchAttackHandoffToken;
+	if (bDeferredNormalWeaponSwitchAttackHandoffRequested)
+	{
+		return;
+	}
+
+	bDeferredNormalWeaponSwitchAttackHandoffRequested = true;
+	GetWorld()->GetTimerManager().SetTimerForNextTick(
+		this,
+		&ThisClass::HandleDeferredNormalWeaponSwitchAttackHandoff);
 }
 
 void UHeroWeaponSwitchComponent::ResetRuntimeStateForHeroStartup()
 {
 	WeaponSwitchRequest.Clear();
 	WeaponSwitchTransactionState.Clear();
-	WeaponSwitchPresentationState.Clear();
-	bDeferredQueuedWeaponSwitchConsumeRequested = false;
+	SpecialWeaponSwitchPresentationState.Clear();
 	bDeferredCombatInputRecoveryAfterPresentationRequested = false;
+	ClearPendingNormalWeaponSwitchAttackHandoff();
 }
 
 void UHeroWeaponSwitchComponent::HandleBufferedInputExpired()
 {
-	if (ShouldConsumeQueuedWeaponSwitchAfterPresentation()
-		|| bDeferredQueuedWeaponSwitchConsumeRequested)
-	{
-		return;
-	}
-
 	ClearQueuedWeaponLoadoutSlotSwitch();
 }
 
@@ -436,92 +517,6 @@ bool UHeroWeaponSwitchComponent::QueueWeaponLoadoutSlotSwitch(const EHeroWeaponL
 	// 因此 Request 层只保留一个最终目标，不把槽位按键继续扩成多笔排队事务。
 	WeaponSwitchRequest.SetRequest(InLoadoutSlot, RequestWorldTime, RequestOrder);
 	return true;
-}
-
-bool UHeroWeaponSwitchComponent::TryConsumeQueuedWeaponSwitchAfterPresentation()
-{
-	EHeroWeaponLoadoutSlot TargetLoadoutSlot = EHeroWeaponLoadoutSlot::Invalid;
-	if (!WeaponSwitchRequest.ResolveQueuedLoadoutSlot(TargetLoadoutSlot, false))
-	{
-		return false;
-	}
-
-	UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent();
-	UHeroCombatInputComponent* CombatInputComponent = GetOwningHeroCombatInputComponent();
-	UActionAbilitySystemComponent* ActionASC = GetOwningActionAbilitySystemComponent();
-	if (!CombatComponent || !CombatInputComponent || !ActionASC)
-	{
-		return false;
-	}
-
-	const FGameplayTag InputTag = GetInputTagForWeaponLoadoutSlot(TargetLoadoutSlot);
-	if (!InputTag.IsValid())
-	{
-		WeaponSwitchRequest.Clear();
-		return false;
-	}
-
-	// 这里复用正常槽位输入入口，而不是另写一条“表现期后切武特例链”，
-	// 这样冷却、空槽、事务门禁与输入消费都能沿用同一套规则。
-	const bool bHandled = HandleWeaponLoadoutSlotInput(ActionASC, InputTag, TargetLoadoutSlot);
-	if (!bHandled
-		&& WeaponSwitchRequest.HasQueuedRequest()
-		&& IsWeaponSwitchBlockedByCooldown())
-	{
-		RequestConsumeQueuedWeaponSwitchAfterPresentationOnNextTick();
-		return false;
-	}
-
-	// 表现期后的排队切武请求，优先级高于普通输入恢复；
-	// 但如果这次排队请求最终只是空操作，或尝试提交后并未真正开启新切武事务，
-	// 就不能继续把表现期内缓存下来的攻击 / 防御输入一直挂起。
-	// 这里的目标不是“无论如何再起一次切武”，而是把 request / transaction / 普通输入恢复三者的收尾顺序重新整理干净。
-	// 这里把“非冷却重试场景”的旧请求收尾清掉，并立即恢复普通战斗输入链。
-	if (!WeaponSwitchTransactionState.bSwitchInProgress
-		&& !WeaponSwitchPresentationState.bPresentationActive)
-	{
-		if (WeaponSwitchRequest.ShouldConsumeAfterPresentation())
-		{
-			WeaponSwitchRequest.Clear();
-		}
-
-		if (!WeaponSwitchRequest.HasQueuedRequest())
-		{
-			CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
-		}
-	}
-
-	return bHandled;
-}
-
-void UHeroWeaponSwitchComponent::RequestConsumeQueuedWeaponSwitchAfterPresentationOnNextTick()
-{
-	if (bDeferredQueuedWeaponSwitchConsumeRequested || !GetWorld())
-	{
-		return;
-	}
-
-	// 排队切武消费放到下一帧，避免和“表现刚结束但 GA 还没完全退场”的这一帧打架。
-	// 因此不在 EndWeaponSwitchPresentation 里同步起新事务，避免旧表现壳与新切武能力在同帧互相抢状态。
-	bDeferredQueuedWeaponSwitchConsumeRequested = true;
-	GetWorld()->GetTimerManager().SetTimerForNextTick(
-		this,
-		&ThisClass::HandleDeferredQueuedWeaponSwitchAfterPresentation);
-}
-
-void UHeroWeaponSwitchComponent::RequestRecoverCombatInputAfterPresentationOnNextTick()
-{
-	if (bDeferredCombatInputRecoveryAfterPresentationRequested || !GetWorld())
-	{
-		return;
-	}
-
-	// 输入恢复同样延后一帧，确保表现期标签、切武事务与装备回调都有机会在本帧先收口。
-	// 避免“本帧刚结束表现、本帧恢复输入后又立刻被 WeaponSwitch.Active 或旧事务态挡回去”的抖动。
-	bDeferredCombatInputRecoveryAfterPresentationRequested = true;
-	GetWorld()->GetTimerManager().SetTimerForNextTick(
-		this,
-		&ThisClass::HandleDeferredRecoverCombatInputAfterPresentation);
 }
 
 void UHeroWeaponSwitchComponent::HandleEquippedWeaponStateChanged(
@@ -580,15 +575,12 @@ void UHeroWeaponSwitchComponent::HandleEquippedWeaponStateChanged(
 		bShouldBroadcastLifecycle,
 		ActionGameplayTags::Player_Event_WeaponSwitch_End);
 
-	if (WeaponSwitchPresentationState.bPresentationActive)
+	if (SpecialWeaponSwitchPresentationState.bPresentationActive)
 	{
-		// 逻辑切武已经完成，但特殊切武演出还在播。
-		// 这时不能立刻恢复普通输入，否则会在演出未结束时抢回控制权。
 		return;
 	}
 
 	CombatComponent->FinalizeWeaponSwitchRuntimeState();
-	CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
 }
 
 void UHeroWeaponSwitchComponent::HandleWeaponLoadoutEquipFailed(const EHeroWeaponLoadoutSlot InLoadoutSlot)
@@ -602,24 +594,16 @@ void UHeroWeaponSwitchComponent::HandleWeaponLoadoutEquipFailed(const EHeroWeapo
 	// 装备失败时必须显式把事务清掉，
 	// 否则这笔“永远等不到成功回调”的旧事务会一直阻塞后续切武。
 	WeaponSwitchTransactionState.Clear();
+	WeaponSwitchRequest.Clear();
 	if (UHeroCombatInputComponent* CombatInputComponent = GetOwningHeroCombatInputComponent())
 	{
-		if (WeaponSwitchPresentationState.bPresentationActive)
+		if (SpecialWeaponSwitchPresentationState.bPresentationActive)
 		{
 			return;
 		}
 
 		CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
 	}
-}
-
-void UHeroWeaponSwitchComponent::HandleDeferredQueuedWeaponSwitchAfterPresentation()
-{
-	// 先清掉“已登记下一帧重试”的标记，再执行一次真实消费，
-	// 这样即使本次仍被冷却或门禁挡住，后续也能重新登记下一轮重试。
-	bDeferredQueuedWeaponSwitchConsumeRequested = false;
-	FinalizeWeaponSwitchRuntimeAfterPresentationIfReady();
-	TryConsumeQueuedWeaponSwitchAfterPresentation();
 }
 
 void UHeroWeaponSwitchComponent::HandleDeferredRecoverCombatInputAfterPresentation()
@@ -631,26 +615,8 @@ void UHeroWeaponSwitchComponent::HandleDeferredRecoverCombatInputAfterPresentati
 
 	bDeferredCombatInputRecoveryAfterPresentationRequested = false;
 
-	if (WeaponSwitchPresentationState.bPresentationActive
-		|| WeaponSwitchTransactionState.bSwitchInProgress
-		|| WeaponSwitchRequest.HasQueuedRequest())
-	{
-		// 只要演出、事务、排队请求三者里任意一个还没清空，
-		// 就说明切武链还没有真正结束，输入恢复必须继续等待。
-		return;
-	}
-
-	FinalizeWeaponSwitchRuntimeAfterPresentationIfReady();
-
-	if (UHeroCombatInputComponent* CombatInputComponent = GetOwningHeroCombatInputComponent())
-	{
-		CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
-	}
-}
-
-void UHeroWeaponSwitchComponent::FinalizeWeaponSwitchRuntimeAfterPresentationIfReady()
-{
-	if (WeaponSwitchPresentationState.bPresentationActive || WeaponSwitchTransactionState.bSwitchInProgress)
+	if (SpecialWeaponSwitchPresentationState.bPresentationActive
+		|| WeaponSwitchTransactionState.bSwitchInProgress)
 	{
 		return;
 	}
@@ -658,7 +624,79 @@ void UHeroWeaponSwitchComponent::FinalizeWeaponSwitchRuntimeAfterPresentationIfR
 	if (UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent())
 	{
 		CombatComponent->FinalizeWeaponSwitchRuntimeState();
+		if (UHeroCombatInputComponent* CombatInputComponent = GetOwningHeroCombatInputComponent())
+		{
+			CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
+		}
 	}
+}
+
+void UHeroWeaponSwitchComponent::HandleDeferredNormalWeaponSwitchAttackHandoff()
+{
+	if (!bDeferredNormalWeaponSwitchAttackHandoffRequested)
+	{
+		return;
+	}
+
+	const EHeroWeaponLoadoutSlot TargetLoadoutSlot = DeferredNormalWeaponSwitchAttackTargetLoadoutSlot;
+	const int32 HandoffToken = DeferredNormalWeaponSwitchAttackHandoffToken;
+	ClearPendingNormalWeaponSwitchAttackHandoff();
+
+	UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent();
+	UHeroCombatInputComponent* CombatInputComponent = GetOwningHeroCombatInputComponent();
+	UHeroEquipmentComponent* EquipmentComponent = GetOwningHeroEquipmentComponent();
+	UActionAbilitySystemComponent* OwnerASC = GetOwningActionAbilitySystemComponent();
+	if (!CombatComponent || !CombatInputComponent || !EquipmentComponent || !OwnerASC)
+	{
+		return;
+	}
+
+	const bool bSpecialPresentationActive = SpecialWeaponSwitchPresentationState.bPresentationActive;
+	const bool bTransactionInProgress = WeaponSwitchTransactionState.bSwitchInProgress;
+	const EHeroWeaponLoadoutSlot CurrentLoadoutSlot = EquipmentComponent->GetCurrentEquippedLoadoutSlot();
+	const bool bWeaponSwitchAbilityStillActive =
+		OwnerASC->HasMatchingGameplayTag(ActionGameplayTags::State_Ability_WeaponSwitch_Active);
+	if (bSpecialPresentationActive
+		|| bTransactionInProgress
+		|| CurrentLoadoutSlot != TargetLoadoutSlot
+		|| bWeaponSwitchAbilityStillActive)
+	{
+		const FString WarningMessage = FString::Printf(
+			TEXT("[WeaponSwitch] deferred normal switch attack handoff skipped. token=%d target_slot=%d current_slot=%d special_presentation=%d transaction=%d weapon_switch_active=%d"),
+			HandoffToken,
+			static_cast<int32>(TargetLoadoutSlot),
+			static_cast<int32>(CurrentLoadoutSlot),
+			bSpecialPresentationActive ? 1 : 0,
+			bTransactionInProgress ? 1 : 0,
+			bWeaponSwitchAbilityStillActive ? 1 : 0);
+		Debug::Print(WarningMessage, FColor::Orange, 2.5f);
+		UE_LOG(LogTemp, Warning, TEXT("%s"), *WarningMessage);
+		CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
+		return;
+	}
+
+	UHeroAttackComponent* HeroAttackComponent = CombatComponent->GetOwningHeroAttackComponent();
+	const bool bAttackTriggered = HeroAttackComponent
+		&& HeroAttackComponent->TryTriggerDefaultLightAttackAfterNormalWeaponSwitch(OwnerASC);
+	if (!bAttackTriggered)
+	{
+		const FString WarningMessage = FString::Printf(
+			TEXT("[WeaponSwitch] deferred normal switch attack handoff failed. token=%d target_slot=%d current_slot=%d request=%s"),
+			HandoffToken,
+			static_cast<int32>(TargetLoadoutSlot),
+			static_cast<int32>(CurrentLoadoutSlot),
+			*ActionGameplayTags::Attack_Request_Default.GetTag().ToString());
+		Debug::Print(WarningMessage, FColor::Orange, 2.5f);
+		UE_LOG(LogTemp, Warning, TEXT("%s"), *WarningMessage);
+		CombatInputComponent->RecoverCombatInputAfterWeaponSwitch();
+	}
+}
+
+void UHeroWeaponSwitchComponent::ClearPendingNormalWeaponSwitchAttackHandoff()
+{
+	bDeferredNormalWeaponSwitchAttackHandoffRequested = false;
+	DeferredNormalWeaponSwitchAttackTargetLoadoutSlot = EHeroWeaponLoadoutSlot::Invalid;
+	DeferredNormalWeaponSwitchAttackHandoffToken = 0;
 }
 
 void UHeroWeaponSwitchComponent::BindEquipmentStateDelegates()

@@ -38,9 +38,10 @@ DECLARE_MULTICAST_DELEGATE(FOnHeroCombatUIStateChanged);
 /**
  * 英雄战斗组件。
  * 主要职责如下：
- * 1. 作为角色战斗输入的统一入口，负责按输入事件驱动攻击、闪避、防御、处决与切武。
- * 2. 维护战斗窗口、切武事务、当前武器快照等运行时状态。
- * 3. 作为装备组件与战斗表现层之间的桥接层，把武器定义数据转成可直接执行的战斗逻辑。
+ * 1. 作为角色战斗输入的统一高层门面，负责把输入事件分发到攻击、闪避、防御、处决、Spirit 与切武子链。
+ * 2. 维护公共战斗窗口、当前武器快照、Combat 表现过渡与共享伤害上下文。
+ * 3. 协调装备链、输入恢复链和各战斗子组件，但不替代各子组件自己的正式状态源。
+ * 4. 它是总控门面与公共 runtime 宿主，不是“包办所有战斗状态”的单一大状态机。
  */
 UCLASS()
 class ACTIONRPG_API UHeroCombatComponent : public UPawnCombatComponent
@@ -83,23 +84,23 @@ public:
 	bool EquipWeaponByLoadoutSlot(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
 	/** 读取当前已装备的武器实例。*/
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat|Weapon")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat|Weapon", meta = (ToolTip = "读取当前正式已装备的武器实例。它返回的是装备链已经落地的结果，不会重新驱动装备或切武事务。"))
 	AHeroWeaponBase* GetCurrentEquippedWeapon() const;
 
 	/** 读取当前已装备武器对应的武器定义。*/
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat|Weapon")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat|Weapon", meta = (ToolTip = "读取当前正式已装备武器对应的 WeaponDefinition。它只服务数据驱动查询，不会替代装备组件自己的正式状态源。"))
 	UDataAsset_WeaponDefinition* GetCurrentWeaponDefinition() const;
 
 	/** 当前是否应正式启用武器 LinkedLayer 表现。*/
-	UFUNCTION(BlueprintPure, Category = "Action|Combat|Weapon")
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Weapon", meta = (ToolTip = "查询当前是否应正式启用武器 LinkedLayer 表现。它只回答表现层是否该启用，不等价于重新装备武器或切换动画层资产。"))
 	bool HasEquippedWeaponLinkedLayerPresentation() const;
 
 	/** 当前已装备武器是否应挂在手持 WeaponSocket。它只表达表现挂点，不等价于重新装备武器。*/
-	UFUNCTION(BlueprintPure, Category = "Action|Combat|Weapon")
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Weapon", meta = (ToolTip = "查询当前已装备武器是否应挂在手持 WeaponSocket。它只表达表现挂点语义，不会重新决定当前正式装备结果。"))
 	bool ShouldCurrentEquippedWeaponUseWeaponSocketPresentation() const;
 
 	/** 读取当前正式应挂接的武器 LinkedLayer 类。*/
-	UFUNCTION(BlueprintPure, Category = "Action|Combat|Weapon")
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Weapon", meta = (ToolTip = "读取当前正式应消费的武器 LinkedLayer 类。它主要服务表现桥和动画层挂接，不是新的装备状态源。"))
 	TSubclassOf<UActionHeroLinkedAnimLayer> GetCurrentWeaponLinkedAnimLayerClass() const;
 
 	/** Idle 下主动切入普通战斗姿态，并按当前武器配置推进正式 Combat 表现过渡。*/
@@ -114,24 +115,21 @@ public:
 	/** 切武收尾时统一修复残留战斗态，并把镜头刷新回当前真实表现态。 */
 	void FinalizeWeaponSwitchRuntimeState();
 
-	/** 供摄像机与高层状态判断读取：当前是否仍处于切武表现播放期。*/
-	bool IsWeaponSwitchPresentationActive() const;
-
 	/** 供摄像机与高层状态判断读取：当前是否处于特殊切武表现播放期。*/
 	bool IsSpecialWeaponSwitchPresentationActive() const;
 
 	/** 供表现层诊断读取：当前是否仍处于 CombatMode 过渡壳。*/
 	bool IsCombatModeTransitionPresentationActive() const;
 
-	/** 开始一段正式攻击侧共享伤害上下文。 */
+	/** 开始一段正式攻击侧共享伤害上下文。它只服务当前主动伤害链执行期，不持久保留成长期战斗状态。 */
 	void BeginActiveDamageContext(
 		int32 InAbilityLevel,
 		const FGameplayTag& InSourceAbilityTag);
 
-	/** 清空当前活跃的攻击侧共享伤害上下文。 */
+	/** 清空当前活跃的攻击侧共享伤害上下文，避免旧攻击或旧 Spirit 载荷串到下一条链。 */
 	void ClearActiveDamageContext();
 
-	/** 读取当前是否存在一条活跃的正式伤害上下文。 */
+	/** 读取当前是否存在一条活跃的正式伤害上下文。返回的是当前公共 runtime 快照，不是新的属性状态源。 */
 	bool TryGetActiveDamageContext(FActionDamageContextRuntimeState& OutDamageContext) const;
 
 	/** 让切武子组件从装备组件拉取一次当前武器状态，用于初始化本组件的武器快照。*/
@@ -165,14 +163,14 @@ public:
 	 * HeroCombatComponent 不直接创建或拥有角色对象，
 	 * 而是把角色当作所有外部依赖系统的统一入口。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者英雄角色。它是战斗组件向外解析角色宿主的稳定入口，不会在这里创建新的角色级状态。"))
 	AActionHeroCharacter* GetOwningHeroCharacter() const;
 
 	/**
 	 * 获取拥有者玩家控制器。
 	 * 主要服务于输入、移动状态与部分本地玩家战斗语义查询。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者玩家控制器。它主要服务本地输入、朝向和部分移动语义查询，不形成新的战斗状态源。"))
 	AActionPlayerController* GetOwningHeroController() const;
 
 	/**
@@ -181,14 +179,14 @@ public:
 	 * 因此这里是组件侧接入 GAS 的核心访问点。
 	 * 该入口与其它依赖访问口保持一致：优先使用本地弱引用缓存，缓存失效时再回到角色取值。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者的 ActionAbilitySystemComponent。它是战斗组件接入 GAS 的正式宿主解析入口，不会在这里创建新的能力状态。"))
 	UActionAbilitySystemComponent* GetOwningActionAbilitySystemComponent() const;
 
 	/**
 	 * 获取拥有者装备组件。
 	 * 当前武器定义、固定武器槽状态与切武真实落地结果，都以装备组件为权威来源。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者装备组件。当前武器定义、固定槽状态和切武真实落地结果都以它为正式来源。"))
 	UHeroEquipmentComponent* GetOwningHeroEquipmentComponent() const;
 
 	/**
@@ -196,31 +194,32 @@ public:
 	 * 固定武器槽切换请求、切武事务和切武演出状态统一由该组件维护。
 	 * HeroCombatComponent 只保留高层门面与跨链判断，不再直接持有其内部事务细节。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者切武组件。它持有固定槽切换事务和切武演出状态；战斗组件这里只保留高层门面与跨链判断。"))
 	UHeroWeaponSwitchComponent* GetOwningHeroWeaponSwitchComponent() const;
 
 	/**
 	 * 获取拥有者攻击组件。
 	 * 攻击请求解析、攻击命中上下文与攻击收尾恢复统一由该组件维护。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者攻击组件。它负责攻击请求解析、命中上下文与攻击收尾恢复，是攻击主链的正式宿主之一。"))
 	UHeroAttackComponent* GetOwningHeroAttackComponent() const;
 
 	/**
 	 * 获取拥有者防御组件。
 	 * 闪避、防御与非攻击输入放行判断统一由该组件维护。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者防御组件。它负责闪避、防御和非攻击输入放行判断，不建议外层再维护第二套防御状态。"))
 	UHeroDefenseComponent* GetOwningHeroDefenseComponent() const;
 
 	/**
 	 * 获取拥有者英雄侧处决协调组件。
 	 * 处决目标查询、目标预占、处决伤害结算与处决后输入恢复统一由该组件维护。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者处决协调组件。目标查询、预占、结算和处决后恢复统一由它维护。"))
 	UHeroExecutionCoordinatorComponent* GetOwningHeroExecutionCoordinatorComponent() const;
 
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	/** 获取拥有者命中来源窗口组件。它持有命中窗口和窗口内目标去重，不等于单次命中结果快照。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者命中来源窗口组件。它负责命中窗口、命中来源启停和窗口内目标去重，不等于单次命中结果快照。"))
 	UHeroHitSourceComponent* GetOwningHeroHitSourceComponent() const;
 
 	/**
@@ -228,7 +227,7 @@ public:
 	 * 攻击力、能量、体力等战斗数值最终都以属性集为准，
 	 * 战斗组件只读取和组合这些结果，不复制一套本地数值状态。
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, Category = "Action|Combat", meta = (ToolTip = "获取拥有者属性集。攻击力、能量、体力等正式战斗数值最终都以属性集为准，战斗组件这里只做读取与组合。"))
 	UActionAttributeSetBase* GetOwningActionAttributeSet() const;
 
 public:
@@ -257,16 +256,16 @@ public:
 public:
 	/** 对外战斗事件、受击与状态窗口接口。*/
 
-	/** 向 ASC 与外部监听方广播一条战斗事件。*/
+	/** 向 ASC 与外部监听方广播一条战斗事件。它只做统一事件桥接，不在这里推进新的战斗状态。*/
 	void BroadcastCombatEvent(FGameplayTag EventTag) const;
 
-	/** 处理外部发来的通用战斗事件。*/
+	/** 处理外部发来的通用战斗事件。它只消费外部已形成的事件语义，不反向创造第二套命中或受击状态。*/
 	virtual bool HandleIncomingCombatEvent(FGameplayTag InCombatEventTag, AActor* InstigatorActor) override;
 
-	/** 处理一份已经构造好的受击载荷。*/
+	/** 处理一份已经构造好的受击载荷。它只负责把结算结果落到 Hero 总控与子链协作上，不替代 ActionHitResolver。*/
 	virtual bool TryHandleIncomingDamage(const FActionDamagePayload& InDamagePayload, FActionHitResolveResult& OutResult) override;
 
-	/** 当前是否处于防御状态。*/
+	/** 当前是否处于防御状态。它读的是公共窗口 runtime，不等于防御 Ability 生命周期。*/
 	bool IsDefenseActive() const { return WindowRuntimeState.IsDefenseActive(); }
 
 	/** 当前精确格挡窗口是否开启。*/
@@ -281,7 +280,7 @@ public:
 	/** 写入精确格挡窗口是否激活。 */
 	void SetParryWindowStateActive(bool bActive) { WindowRuntimeState.SetParryWindowActive(bActive); }
 
-	/** 当前是否处于闪避状态。*/
+	/** 当前是否处于闪避状态。它读的是公共窗口 runtime，不等于闪避 Ability 生命周期。*/
 	bool IsDodgeActive() const { return WindowRuntimeState.IsDodgeActive(); }
 
 	/** 当前完美闪避窗口是否开启。*/
@@ -313,19 +312,32 @@ public:
 	 */
 	bool IsAbilityChainWindowActive() const { return AbilityWindowRuntimeState.IsAbilityChainWindowActive(); }
 
-	/** 判断当前攻击衔接窗口是否明确接受指定输入。 */
+	/** 判断当前攻击衔接窗口是否明确接受指定输入。它只回答当前公共窗口是否放行，不等于输入已经被正式消费。 */
 	bool CanAcceptAbilityChainInput(const FGameplayTag& InputTag) const
 	{
 		return AbilityWindowRuntimeState.IsAbilityChainWindowActive()
 			&& AbilityWindowRuntimeState.AcceptsChainInput(InputTag);
 	}
 
-	/**
-	 * 读取通用动作取消窗口是否处于开启状态。
-	 * 当攻击、处决等能力仍处于正式演出阶段时，后续是否允许插入闪避、防御、切武等动作，
-	 * 由这个窗口和其输入白名单共同决定。
-	 */
-	bool IsAbilityCancelWindowActive() const { return AbilityWindowRuntimeState.IsAbilityCancelWindowActive(); }
+	/** 读取主动 GA 例外抢断窗口是否处于开启状态。 */
+	bool IsAbilityInterruptWindowActive() const { return AbilityWindowRuntimeState.IsAbilityInterruptWindowActive(); }
+
+	/** 读取 CombatReact 恢复取消窗口是否处于开启状态。 */
+	bool IsRecoveryCancelWindowActive() const { return AbilityWindowRuntimeState.IsRecoveryCancelWindowActive(); }
+
+	/** 判断当前主动 GA 例外抢断窗口是否归属于指定 AbilitySpec。它只服务 owner 配对，不等价于 Ability 仍然有效。 */
+	bool DoesAbilityInterruptWindowBelongTo(FGameplayAbilitySpecHandle AbilitySpecHandle) const;
+
+	/** 判断当前主动 GA 例外抢断窗口是否仍归属于指定 owner + montage + serial 组合。 */
+	bool DoesAbilityInterruptWindowBelongTo(
+		FGameplayAbilitySpecHandle AbilitySpecHandle,
+		UAnimMontage* OwnerMontage,
+		uint32 WindowSerial) const;
+
+	/** 判断当前主动 GA 例外抢断窗口是否允许指定 owner 的能力类别抢入。 */
+	bool IsAbilityInterruptCategoryAllowedForOwner(
+		FGameplayAbilitySpecHandle AbilitySpecHandle,
+		EActionAbilityCategory AbilityCategory) const;
 
 	/**
 	 * 打开攻击衔接窗口，并登记本次允许接招的输入白名单。
@@ -338,15 +350,29 @@ public:
 	/** 关闭攻击衔接窗口，阻止当前连段继续接受新的接招输入。 */
 	void CloseAbilityChainWindow();
 
-	/**
-	 * 打开通用动作取消窗口，并登记本次允许插入的输入白名单。
-	 * 该窗口主要服务于“攻击中插闪避 / 攻击中接防御 / 处决中允许后续动作”等取消链，
-	 * 用于把哪些输入能打断当前演出控制在明确范围内。
-	 */
-	void OpenAbilityCancelWindow(const FGameplayTagContainer& InAllowedInputTags);
+	/** 打开主动 GA 例外抢断窗口，并登记 owner 与本次允许抢入的能力类别白名单。它只服务窗口层 runtime，不替代 ASC 默认矩阵裁决。 */
+	uint32 OpenAbilityInterruptWindow(
+		FGameplayAbilitySpecHandle OwnerSpecHandle,
+		UAnimMontage* OwnerMontage,
+		const TArray<EActionAbilityCategory>& InAllowedCategories);
 
-	/** 关闭通用动作取消窗口，恢复为当前演出不再接受取消插入的状态。 */
-	void CloseAbilityCancelWindow();
+	/** 只有 owner + montage + serial 仍匹配时，才关闭主动 GA 例外抢断窗口。这样旧蒙太奇 / 旧 notify 晚到时不会关错当前窗口。 */
+	bool CloseAbilityInterruptWindowIfOwned(
+		FGameplayAbilitySpecHandle OwnerSpecHandle,
+		UAnimMontage* OwnerMontage,
+		uint32 WindowSerial);
+
+	/** 新动作 authoritative takeover 起手前的统一清场入口：关闭 chain-window 并强制清空 interrupt-window。 */
+	void ClearAbilityWindowsForAuthoritativeTakeover();
+
+	/** CombatReact 硬重置链的 interrupt-window 清场入口。它只服务受击硬重置，不对外表达普通关窗语义。 */
+	void ClearAbilityInterruptWindowForCombatReactHardReset();
+
+	/** 打开 CombatReact 恢复取消窗口，并登记本次允许恢复抢入的输入白名单。 */
+	void OpenCombatReactRecoveryCancelWindow(const FGameplayTagContainer& InAllowedInputTags);
+
+	/** 关闭 CombatReact 恢复取消窗口。 */
+	void CloseCombatReactRecoveryCancelWindow();
 
 	/**
 	 * 按组件侧持久运行态，解析这次 Spirit 输入真正应该播放的技能段。
@@ -357,8 +383,20 @@ public:
 		const FActionSpiritSkillConfig& SpiritSkillConfig,
 		int32 SkillClipCount) const;
 
-	/** 读取当前这条 Spirit 连段是否已经正式提交过一次成本。 */
+	/** 读取当前这条 Spirit 连段是否已经正式提交过一次成本。它读的是跨激活持久 runtime，不是当前 GA 局部布尔。 */
 	bool HasCommittedSpiritSkillChainCost(const FGameplayTag& SpiritInputTag) const;
+
+	/** 读取当前这条 Spirit 连段是否仍保留可续段的正式资格。 */
+	bool HasSpiritSkillChainQualification(const FGameplayTag& SpiritInputTag) const;
+
+	/** 判断当前武器上下文是否仍与这条 Spirit 持久资格匹配。 */
+	bool IsSpiritSkillChainContextCompatible(const FGameplayTag& SpiritInputTag) const;
+
+	/** 若当前武器上下文已不匹配这条 Spirit 持久资格，则清掉旧资格。 */
+	void ClearSpiritSkillComboStateIfContextMismatch(const FGameplayTag& SpiritInputTag);
+
+	/** 读取这条 Spirit 持久资格的调试摘要。 */
+	FString DescribeSpiritSkillComboRuntimeState(const FGameplayTag& SpiritInputTag) const;
 
 	/**
 	 * 当前 Spirit 技能段成功起手后，同步组件侧持久状态。
@@ -632,6 +670,20 @@ public:
 	 */
 	FString DescribeNonAttackInputGateForDebug(const FGameplayTag& InputTag) const;
 
+	/**
+	 * 输出当前非攻击输入在“准备写入缓冲”阶段的只读调试摘要。
+	 * 这层只解释缓冲写入在进入正式消费链前先被哪一层预检阻断或放行，
+	 * 真正的矩阵裁决和 Ability 自身预检仍回到 ASC / GA 正式主链。
+	 */
+	FString DescribeBufferedNonAttackQueueGateForDebug(const FGameplayTag& InputTag) const;
+
+	/**
+	 * 输出当前非攻击缓冲输入在“准备回放”阶段的只读调试摘要。
+	 * 这层只解释缓冲回放在进入正式激活前先被哪一层预检阻断或放行，
+	 * 真正的矩阵裁决和 Ability 自身预检仍回到 ASC / GA 正式主链。
+	 */
+	FString DescribeBufferedNonAttackReplayGateForDebug(const FActionBufferedInput& BufferedInput) const;
+
 protected:
 	/** 读取拥有者身上的受击组件。*/
 	UActionCombatReactComponent* GetOwningCombatReactComponent() const;
@@ -651,6 +703,12 @@ protected:
 	/** 当前恢复阶段是否已通过取消窗口正式放行这次输入。 */
 	bool IsCombatReactRecoveryCancelInputAllowed(FGameplayTag InputTag) const;
 
+	/** 输入层内部 helper：只回答当前 interrupt-window 在输入门禁语义下是否接收这个能力类别，不对外表达 owner-aware 关系裁决。 */
+	bool IsAbilityInterruptCategoryAllowedNow(EActionAbilityCategory AbilityCategory) const;
+
+	/** 输入层内部 helper：只回答当前 interrupt-window 在输入门禁语义下是否接收这个输入，不对外表达 owner-aware 关系裁决。 */
+	bool IsAbilityInterruptInputAllowedNow(FGameplayTag InputTag) const;
+
 	/** 当前是否因普通空中状态而禁止非攻击输入。*/
 	bool IsNonAttackInputBlockedByAirborneState() const;
 
@@ -667,28 +725,49 @@ protected:
 	bool IsAttackInputTag(FGameplayTag InputTag) const;
 
 	/**
-	 * 判断当前是否处于“只有取消窗口明确放行时，后续动作才允许插入”的阶段。
-	 * 主要覆盖攻击演出、处决演出以及战斗锁状态下的输入打断链。
+	 * 判断当前是否处于“只有抢断窗口或恢复窗口明确放行时，后续动作才允许插入”的输入改写上下文。
+	 * 主要覆盖攻击演出、处决演出、切武表现期和恢复阶段的输入放行链。
 	 */
-	bool IsAbilityCancelContextActive() const;
+	bool IsInputOverrideContextActive() const;
 
-	/** 当前切武表现期是否已经正式进入“只认链窗白名单接攻击”的链上下文。 */
-	bool IsWeaponSwitchPresentationChainContextActive() const;
+	/** 当前特殊切武表现期是否已经正式进入“只认链窗白名单接攻击”的链上下文。 */
+	bool IsSpecialWeaponSwitchPresentationChainContextActive() const;
 
-	/** 当前切武表现期是否已经正式进入“只认取消窗口白名单”的取消上下文。 */
-	bool IsWeaponSwitchPresentationCancelContextActive() const;
+	/** 当前特殊切武表现期是否已经正式进入“只认主动 GA 抢断窗口白名单”的抢断上下文。 */
+	bool IsSpecialWeaponSwitchPresentationInterruptContextActive() const;
+
+	/** 输入层具名 helper：判断当前 interrupt-window 在输入层语义下是否接收这次输入。 */
+	bool IsInterruptWindowInputAllowedForInputLayer(FGameplayTag InputTag) const;
+
+	/** 输入层具名 helper：判断 combat lock 上下文是否已通过当前 interrupt-window 正式放行这次输入。 */
+	bool IsCombatLockInputAllowedByInterruptWindow(FGameplayTag InputTag) const;
+
+	/** 输入层具名 helper：判断普通 interrupt override 上下文是否允许把这次输入写入缓冲。 */
+	bool IsBufferedInputAllowedByInterruptOverrideContext(FGameplayTag InputTag) const;
 
 	/**
-	 * 判断取消窗口当前是否允许这个输入立即生效。
-	 * 输入必须有效、取消窗口必须处于开启状态、并且输入 Tag 在本次白名单内，三者缺一不可。
+	 * 判断当前输入改写上下文是否允许这个输入立即生效。
+	 * 主动 GA 抢断链按输入层 interrupt 白名单解释，CombatReact 恢复链继续按恢复输入标签白名单解释。
+	 * 它只服务输入层上下文门禁，不替代 ASC owner-aware 关系裁决。
 	 */
-	bool IsAbilityCancelInputAllowedNow(FGameplayTag InputTag) const;
+	bool IsInputAllowedByCurrentOverrideContext(FGameplayTag InputTag) const;
 
-	/** 当前切武表现期是否已通过现有 AbilityChainWindow 正式放行这次攻击输入。 */
-	bool IsWeaponSwitchPresentationChainInputAllowed(FGameplayTag InputTag) const;
+public:
+	/**
+	 * 判断某个“主动接管型非攻击 GA”是否通过了进入 ASC 关系裁决前的共享硬门禁。
+	 * 这里只保留启动链、受击、空中、切武事务、特殊切武表现期和总控硬锁这类稳定阻断，
+	 * 不再把 override context / interrupt-window / attack enabled 当成最终关系预检结论。
+	 */
+	bool PassesSharedNonAttackAbilityHardGate(
+		FGameplayTag InputTag,
+		FString* OutFailureReason = nullptr) const;
 
-	/** 当前切武表现期是否已通过现有 AbilityCancelWindow 正式放行这次输入。 */
-	bool IsWeaponSwitchPresentationCancelInputAllowed(FGameplayTag InputTag) const;
+protected:
+	/** 当前特殊切武表现期是否已通过现有 AbilityChainWindow 正式放行这次攻击输入。 */
+	bool IsSpecialWeaponSwitchPresentationChainInputAllowed(FGameplayTag InputTag) const;
+
+	/** 当前特殊切武表现期是否已通过现有输入层 interrupt 白名单正式放行这次输入。 */
+	bool IsSpecialWeaponSwitchPresentationInterruptInputAllowed(FGameplayTag InputTag) const;
 
 	/**
 	 * 判断当前条件下这个输入是否允许被写入输入缓冲。
@@ -800,6 +879,15 @@ protected:
 
 protected:
 	/** 计时器、战斗窗口与通用事件辅助。*/
+
+	/** 强制关闭主动 GA 例外抢断窗口。它只给组件内部的启动修复、硬重置和异常清场使用。 */
+	void ForceCloseAbilityInterruptWindow();
+
+	/** 输入恢复重置专用清场：只服务 input recovery reset，不与其它强制清理语义混用。 */
+	void ClearAbilityInterruptWindowForInputRecoveryReset();
+
+	/** runtime auto repair 专用清场：只服务 repair 语义，不与 takeover / hard reset 混用。 */
+	void ClearAbilityInterruptWindowForRuntimeRepair();
 
 	/**
 	 * 清空输入缓冲、关闭窗口并回零延迟恢复标记。
@@ -1007,53 +1095,55 @@ protected:
 	/** 输入与窗口配置。*/
 
 	/** 战斗输入配置资产。*/
-	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig|InputData")
+	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig|InputData", meta = (ToolTip = "战斗输入配置资产。它定义 InputAction 到 GameplayTag 的正式映射，是 HeroCombatComponent 进入输入总分发链的静态入口。"))
 	UDataAsset_InputConfig* CombatInputConfig = nullptr;
 
 	/** 战斗输入映射表。*/
-	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig|InputData")
+	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig|InputData", meta = (ToolTip = "战斗输入映射表。它负责把战斗输入真正挂进 Enhanced Input，本体不保存第二套输入绑定状态。"))
 	UInputMappingContext* CombatMappingContext = nullptr;
 
 	/** 轻按与长按的分界阈值。*/
-	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig")
+	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig", meta = (ClampMin = "0.0", ToolTip = "轻按与长按的分界阈值，单位秒。它只服务输入阶段解释，不直接决定某条 Ability 一定能激活。"))
 	float ShortPressThreshold = 0.4f;
 
 	/** 输入缓冲有效时长。*/
-	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig")
+	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig", meta = (ClampMin = "0.0", ToolTip = "输入缓冲有效时长，单位秒。超时后这次缓冲输入会被正式丢弃，不再等待窗口或恢复链消费。"))
 	float InputBufferDuration = 0.25f;
 
 	/** Combo 状态静止多久后，正式尝试退出 Combat 表现态。*/
-	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig")
+	UPROPERTY(EditDefaultsOnly, Category = "CombatConfig", meta = (ClampMin = "0.0", ToolTip = "Combo 状态静止多久后尝试退出 Combat 表现态，单位秒。它只服务表现层退出时机，不回滚当前装备或战斗正式状态。"))
 	float CombatModeIdleExitDelaySeconds = 3.f;
 
 protected:
 	/** 运行时战斗状态。*/
 
-	/** 精确格挡、完美闪避、闪反等战斗窗口运行时状态。*/
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime")
+	/** 精确格挡、完美闪避、闪反等公共战斗窗口 runtime。它们只表达窗口开关和资格，不替代各 Ability 生命周期。*/
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime", meta = (ToolTip = "正式防御 / 闪避窗口运行态。它只表达窗口是否开启和资格是否可用，不等于 Ability 自身生命周期。"))
 	FHeroCombatWindowRuntimeState WindowRuntimeState;
 
-	/** 攻击衔接 / 通用取消窗口运行时状态。*/
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime")
+	/** 攻击衔接 / 通用取消窗口 runtime。它们只回答当前放行哪些输入，不是新的动作状态机。*/
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime", meta = (ToolTip = "正式攻击衔接 / 通用取消窗口运行态。它只回答当前允许哪些输入接段或取消，不是新的动作状态机。"))
 	FHeroAbilityWindowRuntimeState AbilityWindowRuntimeState;
 
-	/** 近战命中、发射物模板和 Spirit Offensive 共用的正式伤害上下文。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime")
+	/** 近战命中、发射物模板和 Spirit Offensive 共用的正式伤害上下文。它只在当前主动伤害链执行期内有效。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime", meta = (ToolTip = "当前攻击侧共享伤害上下文。它服务近战命中、发射物模板和 Spirit Offensive 载荷解析，只在当前主动链执行期内有效。"))
 	FActionDamageContextRuntimeState DamageContextRuntimeState;
 
 	/**
 	 * Spirit 多段技能的正式持久状态源。
 	 * Key 固定是 SpiritSkill1~4 这类真实输入标签，Value 记录该输入当前待命段、是否仍在等待续段、
 	 * 这条链是否已经扣过一次成本以及对应的超时计时器。
-	 * 这样同一个 Spirit 输入跨多次 GA 激活仍能回到同一份权威状态，而不会把持久语义塞回 GA 局部字段。
+	 * 这样同一个 Spirit 输入跨多次 GA 激活仍能回到同一份权威状态，
+	 * 而不会把持久语义塞回 GA 局部字段或 HeroCombatComponent 之外的临时缓存。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CombatConfig|Runtime", meta = (ToolTip = "Spirit 多段技能的跨激活持久运行态。Key 是真实 Spirit 输入标签，Value 记录待命段、成本提交与超时等正式状态，不应误读成当前 GA 的局部快照。"))
 	TMap<FGameplayTag, FHeroSpiritSkillComboRuntimeState> SpiritSkillComboRuntimeStates;
 
 	/**
 	 * 当前已装备武器定义的本地缓存。
 	 * 绝大多数攻击配置、闪避/防御动画、处决蒙太奇与战斗参数查询都以它为第一入口，
 	 * 这样可以避免每次都反复向装备组件追问当前武器定义。
+	 * 它属于总控门面需要持有的当前快照，不是装备域新的权威状态源。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UDataAsset_WeaponDefinition> CurrentEquippedWeaponDefinition = nullptr;
@@ -1062,6 +1152,7 @@ protected:
 	 * 当前已装备武器实例的本地缓存。
 	 * 当战斗链需要访问实际武器 Actor，例如命中检测、实例侧状态或表现层数据时，
 	 * 会优先从这里读取当前正在生效的实例引用。
+	 * 它同样只是总控快照，不回头决定真实装备事务。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<AHeroWeaponBase> CurrentEquippedWeaponInstance = nullptr;

@@ -2,8 +2,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayAbilitySpec.h"
 #include "GameplayTagContainer.h"
+#include "ActionType/ActionAbilityTypes.h"
+#include "ActionType/ActionLoadoutTypes.h"
 #include "ActionCombatRuntimeTypes.generated.h"
+
+class UAnimMontage;
 
 /** 输入标签当前处于哪一种公共按钮状态语义，不直接代表外层战斗资格是否成立。 */
 UENUM()
@@ -43,21 +48,27 @@ struct FActionBufferedInput
 	GENERATED_BODY()
 
 public:
+	/** 这次被暂存的正式输入标签。它只表达“哪次输入被缓存”，不表达外层是否已经重新放行。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	FGameplayTag InputTag;
 
+	/** 这次缓冲原本来自 Pressed / Held / Released 的哪一段。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	EActionInputEvent TriggerEvent = EActionInputEvent::Pressed;
 
+	/** 这次输入在暂存前已经解析出的攻击请求标签镜像。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	FGameplayTag ResolvedAttackRequestTag;
 
+	/** 这次缓冲输入在世界时间中的过期时刻。超过它后，这份缓冲壳会被视为无效。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	float ExpireWorldTime = 0.f;
 
+	/** 这次输入被写入唯一缓冲壳时的世界时间。主要服务恢复链调试和排序。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	float BufferedWorldTime = 0.f;
 
+	/** 同帧多输入时的稳定顺序号镜像。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 BufferedInputOrder = 0;
 
@@ -87,15 +98,19 @@ struct FActionInputRuntimeStateEntry
 	GENERATED_BODY()
 
 public:
+	/** 当前按钮阶段镜像。它只描述 Pressed / Held / None，不单独表达战斗资格。 */
 	UPROPERTY()
 	EActionInputButtonState ButtonState = EActionInputButtonState::None;
 
+	/** 这次输入是否已经被正式消费。 */
 	UPROPERTY()
 	bool bIsConsumed = false;
 
+	/** 当前按下累计时长镜像。它主要服务 Held 判定、表现消费和诊断。 */
 	UPROPERTY()
 	float PressedTime = 0.f;
 
+	/** 当前锁存的攻击请求标签镜像，供延迟消费或回放继续沿用。 */
 	UPROPERTY()
 	FGameplayTag LatchedAttackRequestTag;
 };
@@ -110,12 +125,15 @@ struct FHeroCombatInputRuntimeState
 	GENERATED_BODY()
 
 public:
+	/** 逐键输入镜像表。它是按钮阶段、消费标记和锁存请求的公共 runtime 壳。 */
 	UPROPERTY()
 	TMap<FGameplayTag, FActionInputRuntimeStateEntry> InputRuntimeStateEntries;
 
+	/** 当前唯一缓冲输入壳。 */
 	UPROPERTY()
 	FActionBufferedInput BufferedInput;
 
+	/** 当前唯一缓冲输入的超时计时器句柄。它只服务本层缓冲过期收尾。 */
 	FTimerHandle BufferedInputTimerHandle;
 
 public:
@@ -302,14 +320,35 @@ struct FHeroAbilityWindowRuntimeState
 	GENERATED_BODY()
 
 public:
+	/** 当前是否开放攻击衔接窗口镜像。 */
 	bool bAbilityChainWindowActive = false;
-	bool bAbilityCancelWindowActive = false;
+	/** 当前是否开放主动 GA 例外抢断窗口镜像。 */
+	bool bAbilityInterruptWindowActive = false;
+	/** 当前是否开放 CombatReact 恢复取消窗口镜像。 */
+	bool bRecoveryCancelWindowActive = false;
 
+	/** 这次攻击衔接窗口允许消费的输入白名单镜像。 */
 	UPROPERTY()
 	FGameplayTagContainer ChainWindowAllowedInputTags;
 
+	/** 这次主动 GA 例外抢断窗口允许的能力类别白名单镜像。 */
 	UPROPERTY()
-	FGameplayTagContainer CancelWindowAllowedInputTags;
+	TArray<EActionAbilityCategory> InterruptWindowAllowedCategories;
+
+	/** 当前主动 GA 例外抢断窗口归属的 AbilitySpec 句柄。它只服务 owner 配对收尾，不是新的 Ability 正式状态源。 */
+	UPROPERTY()
+	FGameplayAbilitySpecHandle InterruptWindowOwnerSpecHandle;
+
+	/** 当前主动 GA 例外抢断窗口归属的蒙太奇资源引用。它只服务通知 Begin/End 配对，不承担动画正式状态。 */
+	UPROPERTY()
+	TObjectPtr<UAnimMontage> InterruptWindowOwnerMontage = nullptr;
+
+	/** 当前主动 GA 例外抢断窗口的递增序号。它只服务旧通知晚到时的安全配对，不表达窗口优先级。 */
+	uint32 InterruptWindowSerial = 0;
+
+	/** 这次 CombatReact 恢复取消窗口允许消费的输入白名单镜像。 */
+	UPROPERTY()
+	FGameplayTagContainer RecoveryCancelWindowAllowedInputTags;
 
 public:
 	/** 当前是否仍开放攻击衔接窗口。 */
@@ -318,10 +357,16 @@ public:
 		return bAbilityChainWindowActive;
 	}
 
-	/** 当前是否仍开放通用取消窗口。 */
-	bool IsAbilityCancelWindowActive() const
+	/** 当前是否仍开放主动 GA 例外抢断窗口。 */
+	bool IsAbilityInterruptWindowActive() const
 	{
-		return bAbilityCancelWindowActive;
+		return bAbilityInterruptWindowActive;
+	}
+
+	/** 当前是否仍开放 CombatReact 恢复取消窗口。 */
+	bool IsRecoveryCancelWindowActive() const
+	{
+		return bRecoveryCancelWindowActive;
 	}
 
 	/** 只回答当前衔接窗口是否接收这个输入标签，不替代外层正式资格判断。 */
@@ -330,10 +375,38 @@ public:
 		return AcceptsInput(ChainWindowAllowedInputTags, InInputTag);
 	}
 
-	/** 只回答当前取消窗口是否接收这个输入标签，不替代外层正式资格判断。 */
-	bool AcceptsCancelInput(const FGameplayTag& InInputTag) const
+	/** 只回答当前主动 GA 例外抢断窗口是否接收这个能力类别，不替代外层正式资格判断。 */
+	bool AcceptsInterruptCategory(const EActionAbilityCategory InCategory) const
 	{
-		return AcceptsInput(CancelWindowAllowedInputTags, InInputTag);
+		return AcceptsCategory(InterruptWindowAllowedCategories, InCategory);
+	}
+
+	/** 只回答当前主动 GA 例外抢断窗口是否归属于指定 Spec。它只服务 owner 配对，不替代 Ability 生命周期判断。 */
+	bool IsInterruptWindowOwnedBySpec(const FGameplayAbilitySpecHandle& InOwnerSpecHandle) const
+	{
+		return bAbilityInterruptWindowActive
+			&& InOwnerSpecHandle.IsValid()
+			&& InterruptWindowOwnerSpecHandle == InOwnerSpecHandle;
+	}
+
+	/** 只回答当前主动 GA 例外抢断窗口是否仍归属于指定 owner + montage + serial 组合。 */
+	bool DoesInterruptWindowBelongTo(
+		const FGameplayAbilitySpecHandle& InOwnerSpecHandle,
+		const UAnimMontage* InOwnerMontage,
+		const uint32 InInterruptWindowSerial) const
+	{
+		return bAbilityInterruptWindowActive
+			&& InOwnerSpecHandle.IsValid()
+			&& InterruptWindowOwnerSpecHandle == InOwnerSpecHandle
+			&& InterruptWindowOwnerMontage == InOwnerMontage
+			&& InInterruptWindowSerial != 0
+			&& InterruptWindowSerial == InInterruptWindowSerial;
+	}
+
+	/** 只回答当前 CombatReact 恢复取消窗口是否接收这个输入标签，不替代外层正式资格判断。 */
+	bool AcceptsRecoveryCancelInput(const FGameplayTag& InInputTag) const
+	{
+		return AcceptsInput(RecoveryCancelWindowAllowedInputTags, InInputTag);
 	}
 
 	/** 打开攻击衔接窗口并写入这次窗口允许的输入集合。 */
@@ -350,25 +423,77 @@ public:
 		ChainWindowAllowedInputTags.Reset();
 	}
 
-	/** 打开通用取消窗口并写入这次窗口允许的输入集合。 */
-	void OpenAbilityCancelWindow(const FGameplayTagContainer& InAllowedInputTags)
+	/** 打开主动 GA 例外抢断窗口并写入 owner 与这次窗口允许的能力类别集合。 */
+	uint32 OpenAbilityInterruptWindow(
+		const FGameplayAbilitySpecHandle& InOwnerSpecHandle,
+		UAnimMontage* InOwnerMontage,
+		const TArray<EActionAbilityCategory>& InAllowedCategories)
 	{
-		bAbilityCancelWindowActive = true;
-		CancelWindowAllowedInputTags = InAllowedInputTags;
+		if (!InOwnerSpecHandle.IsValid() || InOwnerMontage == nullptr)
+		{
+			return 0;
+		}
+
+		++InterruptWindowSerial;
+		if (InterruptWindowSerial == 0)
+		{
+			++InterruptWindowSerial;
+		}
+
+		bAbilityInterruptWindowActive = true;
+		InterruptWindowOwnerSpecHandle = InOwnerSpecHandle;
+		InterruptWindowOwnerMontage = InOwnerMontage;
+		InterruptWindowAllowedCategories = InAllowedCategories;
+		return InterruptWindowSerial;
 	}
 
-	/** 关闭通用取消窗口并清空它的允许输入集合。 */
-	void CloseAbilityCancelWindow()
+	/** 只有 owner 与 serial 仍匹配时，才关闭主动 GA 例外抢断窗口并清空它的能力类别集合。 */
+	bool CloseAbilityInterruptWindowIfOwned(
+		const FGameplayAbilitySpecHandle& InOwnerSpecHandle,
+		const UAnimMontage* InOwnerMontage,
+		const uint32 InInterruptWindowSerial)
 	{
-		bAbilityCancelWindowActive = false;
-		CancelWindowAllowedInputTags.Reset();
+		if (!DoesInterruptWindowBelongTo(InOwnerSpecHandle, InOwnerMontage, InInterruptWindowSerial))
+		{
+			return false;
+		}
+
+		bAbilityInterruptWindowActive = false;
+		InterruptWindowAllowedCategories.Reset();
+		InterruptWindowOwnerSpecHandle = FGameplayAbilitySpecHandle();
+		InterruptWindowOwnerMontage = nullptr;
+		return true;
+	}
+
+	/** 强制关闭主动 GA 例外抢断窗口。它只给硬重置、启动修复和异常清场使用。 */
+	void ForceCloseAbilityInterruptWindow()
+	{
+		bAbilityInterruptWindowActive = false;
+		InterruptWindowAllowedCategories.Reset();
+		InterruptWindowOwnerSpecHandle = FGameplayAbilitySpecHandle();
+		InterruptWindowOwnerMontage = nullptr;
+	}
+
+	/** 打开 CombatReact 恢复取消窗口并写入这次窗口允许的输入集合。 */
+	void OpenRecoveryCancelWindow(const FGameplayTagContainer& InAllowedInputTags)
+	{
+		bRecoveryCancelWindowActive = true;
+		RecoveryCancelWindowAllowedInputTags = InAllowedInputTags;
+	}
+
+	/** 关闭 CombatReact 恢复取消窗口并清空它的允许输入集合。 */
+	void CloseRecoveryCancelWindow()
+	{
+		bRecoveryCancelWindowActive = false;
+		RecoveryCancelWindowAllowedInputTags.Reset();
 	}
 
 	/** 把两类 Ability 窗口镜像整体回收到空态。 */
 	void Reset()
 	{
 		CloseAbilityChainWindow();
-		CloseAbilityCancelWindow();
+		ForceCloseAbilityInterruptWindow();
+		CloseRecoveryCancelWindow();
 	}
 
 private:
@@ -381,6 +506,19 @@ private:
 		}
 
 		return InAllowedInputTags.IsEmpty() || InAllowedInputTags.HasTagExact(InInputTag);
+	}
+
+	/** 窗口层的纯读取 helper：主动 GA 例外抢断窗口必须显式列出允许类别；留空按安全基线直接拒绝。 */
+	static bool AcceptsCategory(
+		const TArray<EActionAbilityCategory>& InAllowedCategories,
+		const EActionAbilityCategory InCategory)
+	{
+		if (!IsValidActionAbilityCategory(InCategory))
+		{
+			return false;
+		}
+
+		return !InAllowedCategories.IsEmpty() && InAllowedCategories.Contains(InCategory);
 	}
 };
 
@@ -395,10 +533,15 @@ struct FHeroCombatWindowRuntimeState
 	GENERATED_BODY()
 
 public:
+	/** 当前防御窗口镜像。 */
 	bool bDefenseActive = false;
+	/** 当前精准格挡窗口镜像。 */
 	bool bParryWindowActive = false;
+	/** 当前闪避表现 / 资格窗口镜像。 */
 	bool bDodgeActive = false;
+	/** 当前完美闪避判定窗口镜像。 */
 	bool bPerfectDodgeWindowActive = false;
+	/** 当前闪反资格镜像。 */
 	bool bDodgeCounterAvailable = false;
 
 public:
@@ -502,6 +645,18 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	float ComboChainTimeoutSeconds = 0.f;
 
+	/** 当前这条 Spirit 连段最初起手时对应的武器槽，用于后续跨帧续段时校验武器上下文。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	EHeroWeaponLoadoutSlot SourceLoadoutSlot = EHeroWeaponLoadoutSlot::Invalid;
+
+	/** 当前这条 Spirit 连段对应的冷却标签快照。它用于调试和超时语义收口。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FGameplayTag SourceCooldownTag;
+
+	/** 当前这条 Spirit 连段是否仍保留跨激活的续段资格。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool bChainQualificationActive = false;
+
 	/** 当前等待超时计时器句柄。组件在超时回调里负责提交流却并回收这条持久状态。 */
 	FTimerHandle ComboChainTimeoutTimerHandle;
 
@@ -520,6 +675,9 @@ public:
 		bWaitingForNextClip = false;
 		bCostCommittedForCurrentChain = false;
 		ComboChainTimeoutSeconds = 0.f;
+		SourceLoadoutSlot = EHeroWeaponLoadoutSlot::Invalid;
+		SourceCooldownTag = FGameplayTag();
+		bChainQualificationActive = false;
 		ComboChainTimeoutTimerHandle = FTimerHandle();
 	}
 };

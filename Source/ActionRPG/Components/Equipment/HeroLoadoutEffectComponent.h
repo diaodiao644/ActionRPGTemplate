@@ -17,6 +17,7 @@ class UHeroLoadoutRuntimeComponent;
 /**
  * 英雄装备外部命中效果来源生命周期组件。
  * 负责 direct 层、具名来源、定时来源、挂起/恢复与聚合镜像的唯一正式状态。
+ * 它是外部命中效果生命周期正式宿主，不是武器静态资产入口，也不是单次命中结果快照。
  * 它与 `UHeroLoadoutContextComponent` 已形成稳定强协作面，后续不再继续细拆生命周期宿主。
  */
 UCLASS(ClassGroup = (Action), meta = (BlueprintSpawnableComponent))
@@ -28,17 +29,17 @@ public:
 	UHeroLoadoutEffectComponent();
 
 public:
-	/** 只读查询当前槽位聚合后的 external additional hit effects。 */
+	/** 只读查询当前槽位聚合后的 external additional hit effects。它返回的是 effect runtime 聚合结果，不是武器资产默认值。 */
 	bool GetLoadoutSlotExternalAdditionalHitEffects(
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		TArray<FActionHitEffectEntry>& OutHitEffects) const;
 
-	/** 只读查询当前槽位可继承给 projectile 的聚合外部命中效果。 */
+	/** 只读查询当前槽位可继承给 projectile 的聚合外部命中效果。它仍然来自当前 effect runtime，而不是 projectile 自己保存的状态。 */
 	bool GetLoadoutSlotProjectileInheritedExternalAdditionalHitEffects(
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		TArray<FActionHitEffectEntry>& OutHitEffects) const;
 
-	/** 只读查询当前槽位所有具名来源的调试快照。 */
+	/** 只读查询当前槽位所有具名来源的调试快照。它只服务排错与展示，不是新的配置入口。 */
 	bool GetLoadoutSlotExternalHitEffectSourceDebugSnapshots(
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		TArray<FActionExternalHitEffectSourceDebugSnapshot>& OutSnapshots) const;
@@ -55,7 +56,7 @@ public:
 		const FActionExternalHitEffectSourceApplyRequest& InRequest,
 		FHeroExternalHitEffectSourceApplyResult& OutResult);
 
-	/** 判断当前槽位武器策略是否允许额外命中效果参与聚合。 */
+	/** 判断当前槽位武器策略是否允许额外命中效果参与聚合。它只读当前策略与 runtime 资格。 */
 	bool DoesLoadoutSlotWeaponAllowAdditionalHitEffects(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
 	/** direct 层正式写入口。写入后需要统一重建聚合镜像。 */
@@ -75,7 +76,7 @@ public:
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		const FActionHitEffectEntry& InHitEffect);
 
-	/** 清空当前槽位的 direct 层与具名来源聚合结果。 */
+	/** 清空当前槽位的 direct 层与具名来源聚合结果。它清的是 effect runtime，不是武器静态模板。 */
 	void ClearLoadoutSlotExternalAdditionalHitEffects(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
 	/** timed source 正式写入口：在 scoped source 之上叠加 duration 生命周期。 */
@@ -91,13 +92,13 @@ public:
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		FGameplayTag InSourceTag);
 
-	/** 响应 context 缓存刷新，重建当前槽位 effect 聚合镜像。 */
+	/** 响应 context 缓存刷新，重建当前槽位 effect 聚合镜像。effect 是正式状态源，context 只接收镜像回写。 */
 	void HandleLoadoutSlotWeaponAttributeCacheRefreshed(
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		FActionWeaponAttributeCacheData& InOutAttributeCache,
 		const UDataAsset_WeaponDefinition* InWeaponDefinition);
 
-	/** 响应 context 缓存清空，回零当前槽位聚合镜像。 */
+	/** 响应 context 缓存清空，回零当前槽位聚合镜像。它仍只处理 effect runtime -> context 镜像收尾。 */
 	void HandleLoadoutSlotWeaponAttributeCacheCleared(
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		FActionWeaponAttributeCacheData& InOutAttributeCache);
@@ -105,7 +106,7 @@ public:
 	/** 重置单槽位的 hit effect 生命周期运行态与 timer。 */
 	void ResetLoadoutSlotHitEffectRuntime(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
-	/** 重置整个组件的生命周期运行态与 timer。 */
+	/** 重置整个组件的生命周期运行态与 timer。它只回收 effect runtime，不创建新的装备或 context 状态。 */
 	void ResetRuntimeStateForHeroStartup();
 
 protected:
@@ -124,11 +125,11 @@ protected:
 	/** 判断指定槽位是否已在装备域正式注册。 */
 	bool IsLoadoutSlotRegistered(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
-	/** 查找指定槽位的 effect runtime。 */
+	/** 查找指定槽位的 effect runtime。这里持有的是外部命中效果生命周期正式状态，不是单次命中结果。 */
 	FHeroLoadoutHitEffectRuntimeState* FindHitEffectRuntimeState(EHeroWeaponLoadoutSlot InLoadoutSlot);
 	const FHeroLoadoutHitEffectRuntimeState* FindHitEffectRuntimeState(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
-	/** 查找或创建指定槽位的 effect runtime。 */
+	/** 查找或创建指定槽位的 effect runtime。它是 direct / scoped / timed 生命周期的正式局部宿主。 */
 	FHeroLoadoutHitEffectRuntimeState& FindOrAddHitEffectRuntimeState(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
 	/** 只校验 effect entries 本身是否合法，不负责业务资格判定。 */
@@ -137,10 +138,10 @@ protected:
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		FString& OutFailureReason) const;
 
-	/** 判断当前槽位 effect runtime 是否因武器策略而处于 suppressed 状态。 */
+	/** 判断当前槽位 effect runtime 是否因武器策略而处于 suppressed 状态。它返回的是当前生命周期资格结果。 */
 	bool IsLoadoutSlotExternalHitEffectSuppressed(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
-	/** 从当前 runtime 状态重建槽位聚合镜像。 */
+	/** 从当前 runtime 状态重建槽位聚合镜像。聚合结果随后再镜像回 context/attribute cache。 */
 	void RebuildLoadoutSlotExternalAdditionalHitEffects(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
 	/** 在已拿到 WeaponAttributeCache 镜像时重建槽位聚合结果。 */
@@ -148,7 +149,7 @@ protected:
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		FActionWeaponAttributeCacheData& InOutAttributeCache);
 
-	/** 把正式 effect runtime 镜像回 WeaponAttributeCache。 */
+	/** 把正式 effect runtime 镜像回 WeaponAttributeCache。它只回写派生镜像，不把 context 反向变成状态源。 */
 	void RefreshCacheMirrorFromRuntime(
 		const FHeroLoadoutHitEffectRuntimeState* InRuntimeState,
 		FActionWeaponAttributeCacheData& InOutAttributeCache) const;
@@ -170,6 +171,7 @@ protected:
 		FGameplayTag InSourceTag);
 
 protected:
+	/** 各固定武器槽的外部命中效果生命周期正式运行态。 */
 	UPROPERTY()
 	TMap<EHeroWeaponLoadoutSlot, FHeroLoadoutHitEffectRuntimeState> HitEffectRuntimeStatesBySlot;
 

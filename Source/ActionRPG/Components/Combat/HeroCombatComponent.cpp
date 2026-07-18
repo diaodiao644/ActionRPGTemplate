@@ -308,12 +308,6 @@ void UHeroCombatComponent::HandleCombatModeTransitionMontageEnded(UAnimMontage* 
 	FinishCombatModeTransitionMontage(Montage, bInterrupted);
 }
 
-bool UHeroCombatComponent::IsWeaponSwitchPresentationActive() const
-{
-	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
-	return WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchPresentationActive();
-}
-
 bool UHeroCombatComponent::IsSpecialWeaponSwitchPresentationActive() const
 {
 	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
@@ -345,8 +339,6 @@ bool UHeroCombatComponent::TryGetActiveDamageContext(
 	OutDamageContext = DamageContextRuntimeState;
 	return DamageContextRuntimeState.HasActiveContext();
 }
-
-// 姝﹀櫒鏁版嵁椹卞姩鏌ヨ
 
 UAnimMontage* UHeroCombatComponent::GetCurrentRunningAnimMontage() const
 {
@@ -618,14 +610,75 @@ void UHeroCombatComponent::CloseAbilityChainWindow()
 	AbilityWindowRuntimeState.CloseAbilityChainWindow();
 }
 
-void UHeroCombatComponent::OpenAbilityCancelWindow(const FGameplayTagContainer& InAllowedInputTags)
+uint32 UHeroCombatComponent::OpenAbilityInterruptWindow(
+	const FGameplayAbilitySpecHandle OwnerSpecHandle,
+	UAnimMontage* OwnerMontage,
+	const TArray<EActionAbilityCategory>& InAllowedCategories)
 {
-	AbilityWindowRuntimeState.OpenAbilityCancelWindow(InAllowedInputTags);
+	// 这里只写窗口层 runtime：记录“当前活跃主动 GA 显式开放了哪些类别的例外抢断”。
+	// 默认谁能打断谁仍由 ASC 关系矩阵裁决，这里不单独定义长期关系。
+	return AbilityWindowRuntimeState.OpenAbilityInterruptWindow(
+		OwnerSpecHandle,
+		OwnerMontage,
+		InAllowedCategories);
 }
 
-void UHeroCombatComponent::CloseAbilityCancelWindow()
+bool UHeroCombatComponent::CloseAbilityInterruptWindowIfOwned(
+	const FGameplayAbilitySpecHandle OwnerSpecHandle,
+	UAnimMontage* OwnerMontage,
+	const uint32 WindowSerial)
 {
-	AbilityWindowRuntimeState.CloseAbilityCancelWindow();
+	// owner-aware close 是窗口层最关键的边界：
+	// 只有真正打开过当前窗口的那条主动链，才允许把它关掉。
+	return AbilityWindowRuntimeState.CloseAbilityInterruptWindowIfOwned(
+		OwnerSpecHandle,
+		OwnerMontage,
+		WindowSerial);
+}
+
+void UHeroCombatComponent::ClearAbilityWindowsForAuthoritativeTakeover()
+{
+	// 新动作 authoritative takeover 起手前统一先收掉旧段残留窗口，
+	// 避免攻击、防御、闪避或处决刚接管时仍沿用上一条主动链留下的 chain / interrupt 运行态。
+	CloseAbilityChainWindow();
+	ForceCloseAbilityInterruptWindow();
+}
+
+void UHeroCombatComponent::ClearAbilityInterruptWindowForCombatReactHardReset()
+{
+	// 受击硬重置不走 owner 配对：
+	// 它的目标是无条件把主动链残留的 interrupt-window 清空，避免受击接管后旧窗口继续放行输入。
+	ForceCloseAbilityInterruptWindow();
+}
+
+void UHeroCombatComponent::ForceCloseAbilityInterruptWindow()
+{
+	// 强清窗是收尾 / 修复动作，不携带“当前候选 GA 在关系上是否有权抢入”的判断语义。
+	AbilityWindowRuntimeState.ForceCloseAbilityInterruptWindow();
+}
+
+void UHeroCombatComponent::ClearAbilityInterruptWindowForInputRecoveryReset()
+{
+	// input recovery reset clear 只服务输入恢复链自己的强制清理，
+	// 避免 ResetCombatInputRecoveryRuntime() 再直接裸调底层强关 primitive。
+	ForceCloseAbilityInterruptWindow();
+}
+
+void UHeroCombatComponent::ClearAbilityInterruptWindowForRuntimeRepair()
+{
+	// runtime repair clear 只服务“无 authoritative active combat ability 却仍残留窗口”的自修复清场，
+	// 避免 repair 主体逻辑重新散落直接调用底层强关 primitive。
+	ForceCloseAbilityInterruptWindow();
+}
+
+void UHeroCombatComponent::OpenCombatReactRecoveryCancelWindow(const FGameplayTagContainer& InAllowedInputTags)
+{
+	AbilityWindowRuntimeState.OpenRecoveryCancelWindow(InAllowedInputTags);
+}
+
+void UHeroCombatComponent::CloseCombatReactRecoveryCancelWindow()
+{
+	AbilityWindowRuntimeState.CloseRecoveryCancelWindow();
 }
 
 void UHeroCombatComponent::BroadcastCombatEvent(FGameplayTag EventTag) const
@@ -767,14 +820,104 @@ int32 UHeroCombatComponent::ResolveSpiritSkillClipIndexToPlay(
 	}
 
 	const FHeroSpiritSkillComboRuntimeState* RuntimeState = FindSpiritSkillComboRuntimeState(SpiritInputTag);
-	const int32 PendingClipIndex = RuntimeState ? RuntimeState->PendingClipIndex : 0;
+	if (!RuntimeState || !RuntimeState->bChainQualificationActive || !IsSpiritSkillChainContextCompatible(SpiritInputTag))
+	{
+		return 0;
+	}
+
+	const int32 PendingClipIndex = RuntimeState->PendingClipIndex;
 	return FMath::Clamp(PendingClipIndex, 0, SkillClipCount - 1);
 }
 
 bool UHeroCombatComponent::HasCommittedSpiritSkillChainCost(const FGameplayTag& SpiritInputTag) const
 {
 	const FHeroSpiritSkillComboRuntimeState* RuntimeState = FindSpiritSkillComboRuntimeState(SpiritInputTag);
-	return RuntimeState ? RuntimeState->bCostCommittedForCurrentChain : false;
+	return RuntimeState
+		&& RuntimeState->bCostCommittedForCurrentChain
+		&& IsSpiritSkillChainContextCompatible(SpiritInputTag);
+}
+
+bool UHeroCombatComponent::HasSpiritSkillChainQualification(const FGameplayTag& SpiritInputTag) const
+{
+	const FHeroSpiritSkillComboRuntimeState* RuntimeState = FindSpiritSkillComboRuntimeState(SpiritInputTag);
+	return RuntimeState
+		&& RuntimeState->bChainQualificationActive
+		&& RuntimeState->SkillClipCount > 1;
+}
+
+bool UHeroCombatComponent::IsSpiritSkillChainContextCompatible(const FGameplayTag& SpiritInputTag) const
+{
+	const FHeroSpiritSkillComboRuntimeState* RuntimeState = FindSpiritSkillComboRuntimeState(SpiritInputTag);
+	if (!RuntimeState || !RuntimeState->bChainQualificationActive)
+	{
+		return false;
+	}
+
+	const UHeroEquipmentComponent* EquipmentComponent = GetOwningHeroEquipmentComponent();
+	if (!EquipmentComponent)
+	{
+		return false;
+	}
+
+	const EHeroWeaponLoadoutSlot CurrentLoadoutSlot = EquipmentComponent->GetCurrentEquippedLoadoutSlot();
+	if (CurrentLoadoutSlot == EHeroWeaponLoadoutSlot::Invalid
+		|| CurrentLoadoutSlot != RuntimeState->SourceLoadoutSlot)
+	{
+		return false;
+	}
+
+	const FGameplayTag ExpectedCooldownTag = ActionGameplayTags::ResolveSpiritSkillCooldownTag(SpiritInputTag);
+	return RuntimeState->SourceCooldownTag.IsValid()
+		&& RuntimeState->SourceCooldownTag == ExpectedCooldownTag;
+}
+
+void UHeroCombatComponent::ClearSpiritSkillComboStateIfContextMismatch(const FGameplayTag& SpiritInputTag)
+{
+	FHeroSpiritSkillComboRuntimeState* RuntimeState = FindMutableSpiritSkillComboRuntimeState(SpiritInputTag);
+	if (!RuntimeState || !RuntimeState->bChainQualificationActive)
+	{
+		return;
+	}
+
+	if (IsSpiritSkillChainContextCompatible(SpiritInputTag))
+	{
+		return;
+	}
+
+	UE_LOG(
+		LogHeroCombatComponent,
+		Log,
+		TEXT("[SpiritSkill] 续段资格与当前武器上下文不匹配，已清理。InputTag=%s State=%s"),
+		*SpiritInputTag.ToString(),
+		*DescribeSpiritSkillComboRuntimeState(SpiritInputTag));
+	ResetSpiritSkillComboState(SpiritInputTag);
+}
+
+FString UHeroCombatComponent::DescribeSpiritSkillComboRuntimeState(const FGameplayTag& SpiritInputTag) const
+{
+	const FHeroSpiritSkillComboRuntimeState* RuntimeState = FindSpiritSkillComboRuntimeState(SpiritInputTag);
+	if (!RuntimeState)
+	{
+		return FString::Printf(TEXT("SpiritChainState=%s"), TEXT("none"));
+	}
+
+	UWorld* World = GetWorld();
+	const bool bTimerActive = World && World->GetTimerManager().IsTimerActive(RuntimeState->ComboChainTimeoutTimerHandle);
+	const float TimeRemaining = World
+		? World->GetTimerManager().GetTimerRemaining(RuntimeState->ComboChainTimeoutTimerHandle)
+		: 0.f;
+
+	return FString::Printf(
+		TEXT("Qualification=%s Waiting=%s PendingClip=%d/%d SourceSlot=%d SourceCooldown=%s Timeout=%.2f TimerActive=%s TimerRemaining=%.2f"),
+		RuntimeState->bChainQualificationActive ? TEXT("yes") : TEXT("no"),
+		RuntimeState->bWaitingForNextClip ? TEXT("yes") : TEXT("no"),
+		RuntimeState->PendingClipIndex + 1,
+		RuntimeState->SkillClipCount,
+		static_cast<int32>(RuntimeState->SourceLoadoutSlot),
+		RuntimeState->SourceCooldownTag.IsValid() ? *RuntimeState->SourceCooldownTag.ToString() : TEXT("Invalid"),
+		RuntimeState->ComboChainTimeoutSeconds,
+		bTimerActive ? TEXT("yes") : TEXT("no"),
+		bTimerActive ? FMath::Max(TimeRemaining, 0.f) : 0.f);
 }
 
 void UHeroCombatComponent::HandleSpiritSkillClipStarted(
@@ -797,6 +940,14 @@ void UHeroCombatComponent::HandleSpiritSkillClipStarted(
 		SpiritSkillConfig.bUseComboIndex
 			? FMath::Max(SpiritSkillConfig.ComboChainTimeoutSeconds, 0.f)
 			: 0.f;
+	RuntimeState->SourceCooldownTag = ActionGameplayTags::ResolveSpiritSkillCooldownTag(SpiritInputTag);
+	RuntimeState->SourceLoadoutSlot = GetOwningHeroEquipmentComponent()
+		? GetOwningHeroEquipmentComponent()->GetCurrentEquippedLoadoutSlot()
+		: EHeroWeaponLoadoutSlot::Invalid;
+	RuntimeState->bChainQualificationActive =
+		SpiritSkillConfig.bUseComboIndex
+		&& SkillClipCount > 1
+		&& StartedClipIndex + 1 < SkillClipCount;
 
 	if (!SpiritSkillConfig.bUseComboIndex || SkillClipCount <= 0)
 	{
@@ -818,13 +969,17 @@ bool UHeroCombatComponent::BeginWaitingForNextSpiritSkillClip(const FGameplayTag
 	FHeroSpiritSkillComboRuntimeState* RuntimeState = FindMutableSpiritSkillComboRuntimeState(SpiritInputTag);
 	if (!RuntimeState
 		|| RuntimeState->SkillClipCount <= 1
-		|| RuntimeState->ComboChainTimeoutSeconds <= 0.f)
+		|| RuntimeState->ComboChainTimeoutSeconds <= 0.f
+		|| !RuntimeState->bChainQualificationActive)
 	{
 		return false;
 	}
 
 	RuntimeState->bWaitingForNextClip = true;
-	StartSpiritSkillComboTimer(SpiritInputTag, *RuntimeState);
+	if (!GetWorld() || !GetWorld()->GetTimerManager().IsTimerActive(RuntimeState->ComboChainTimeoutTimerHandle))
+	{
+		StartSpiritSkillComboTimer(SpiritInputTag, *RuntimeState);
+	}
 	return true;
 }
 
@@ -855,7 +1010,7 @@ void UHeroCombatComponent::ResetAllSpiritSkillComboStates()
 void UHeroCombatComponent::HandleSpiritSkillComboTimeoutByInputTag(FGameplayTag SpiritInputTag)
 {
 	FHeroSpiritSkillComboRuntimeState* RuntimeState = FindMutableSpiritSkillComboRuntimeState(SpiritInputTag);
-	if (!RuntimeState || !RuntimeState->HasWaitingState())
+	if (!RuntimeState || !RuntimeState->bChainQualificationActive)
 	{
 		return;
 	}
@@ -866,13 +1021,12 @@ void UHeroCombatComponent::HandleSpiritSkillComboTimeoutByInputTag(FGameplayTag 
 	const bool bCooldownCommitted =
 		GetOwningActionAbilitySystemComponent()
 		&& GetOwningActionAbilitySystemComponent()->ApplyAbilityCooldownByInputTag(SpiritInputTag);
-	const FGameplayTag SpiritCooldownTag = ActionGameplayTags::ResolveSpiritSkillCooldownTag(SpiritInputTag);
 
 	Debug::Print(
 		FString::Printf(
-			TEXT("[Combat][SpiritSkill] Wait timeout: input=%s cooldown=%s cooldown_committed=%d"),
+			TEXT("[Combat][SpiritSkill] Wait timeout: input=%s state=%s cooldown_committed=%d"),
 			*SpiritInputTag.ToString(),
-			SpiritCooldownTag.IsValid() ? *SpiritCooldownTag.ToString() : TEXT("无效"),
+			*DescribeSpiritSkillComboRuntimeState(SpiritInputTag),
 			bCooldownCommitted ? 1 : 0),
 		bCooldownCommitted ? FColor::Yellow : FColor::Red,
 		1.5f);
@@ -973,7 +1127,8 @@ void UHeroCombatComponent::ResetCombatInputRecoveryRuntime()
 		InputComponent->ClearBufferedInput();
 	}
 	CloseAbilityChainWindow();
-	CloseAbilityCancelWindow();
+	ClearAbilityInterruptWindowForInputRecoveryReset();
+	CloseCombatReactRecoveryCancelWindow();
 	if (UHeroCombatInputComponent* InputComponent = GetOwningHeroCombatInputComponent())
 	{
 		InputComponent->ResetCombatInputRecoveryRuntime();
@@ -1382,8 +1537,17 @@ bool UHeroCombatComponent::HandleAllReleasedLogic(
 	UActionAbilitySystemComponent* InActionASC,
 	FGameplayTag InputTag)
 {
+	(void)InActionASC;
+
 	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_LockTarget)
 	{
+		return true;
+	}
+
+	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		// Execution 只认当次 Pressed 起手。
+		// Released 不再进入共享缓冲或补起手语义。
 		return true;
 	}
 
@@ -1517,7 +1681,7 @@ void UHeroCombatComponent::UpdateCombatModeIdleExitTransition(const float DeltaT
 
 	if (WindowRuntimeState.IsDefenseActive()
 		|| WindowRuntimeState.IsDodgeActive()
-		|| IsWeaponSwitchPresentationActive()
+		|| IsSpecialWeaponSwitchPresentationActive()
 		|| GetCurrentRunningAnimMontage() != nullptr)
 	{
 		CurrentCombatIdleElapsedSeconds = 0.f;
@@ -1925,6 +2089,7 @@ bool UHeroCombatComponent::HandleCombatActionInputByEvent(
 		switch (InputEvent)
 		{
 		case EActionInputEvent::Pressed:
+			ClearSpiritSkillComboStateIfContextMismatch(InputTag);
 			return InActionASC->OnAbilityInputPressed(InputTag);
 
 		case EActionInputEvent::Held:
@@ -1947,14 +2112,55 @@ bool UHeroCombatComponent::IsAttackInputTag(const FGameplayTag InputTag) const
 	return InputTag == ActionGameplayTags::InputTag_GameplayAbility_Attack;
 }
 
-bool UHeroCombatComponent::IsAbilityCancelContextActive() const
+bool UHeroCombatComponent::IsAbilityInterruptCategoryAllowedNow(const EActionAbilityCategory AbilityCategory) const
+{
+	// 这层只服务输入门禁读取：
+	// 它回答“当前 interrupt-window 在输入层语义下是否接受这个类别”，
+	// 不回答“这扇窗口归谁所有”，也不替代 ASC 里的 owner-aware 关系裁决。
+	return AbilityWindowRuntimeState.IsAbilityInterruptWindowActive()
+		&& AbilityWindowRuntimeState.AcceptsInterruptCategory(AbilityCategory);
+}
+
+bool UHeroCombatComponent::DoesAbilityInterruptWindowBelongTo(const FGameplayAbilitySpecHandle AbilitySpecHandle) const
+{
+	return AbilityWindowRuntimeState.IsInterruptWindowOwnedBySpec(AbilitySpecHandle);
+}
+
+bool UHeroCombatComponent::DoesAbilityInterruptWindowBelongTo(
+	const FGameplayAbilitySpecHandle AbilitySpecHandle,
+	UAnimMontage* OwnerMontage,
+	const uint32 WindowSerial) const
+{
+	return AbilityWindowRuntimeState.DoesInterruptWindowBelongTo(
+		AbilitySpecHandle,
+		OwnerMontage,
+		WindowSerial);
+}
+
+bool UHeroCombatComponent::IsAbilityInterruptCategoryAllowedForOwner(
+	const FGameplayAbilitySpecHandle AbilitySpecHandle,
+	const EActionAbilityCategory AbilityCategory) const
+{
+	return AbilityWindowRuntimeState.IsInterruptWindowOwnedBySpec(AbilitySpecHandle)
+		&& AbilityWindowRuntimeState.AcceptsInterruptCategory(AbilityCategory);
+}
+
+bool UHeroCombatComponent::IsAbilityInterruptInputAllowedNow(const FGameplayTag InputTag) const
+{
+	// 输入层继续把 interrupt-window 解释成“当前这次输入对应的能力类别是否被窗口白名单接收”。
+	// 这里不追加 owner 判断，避免把输入层上下文门禁和 ASC 关系裁决混成同一套公开语义。
+	return InputTag.IsValid()
+		&& IsAbilityInterruptCategoryAllowedNow(ResolveActionAbilityCategoryFromInputTag(InputTag));
+}
+
+bool UHeroCombatComponent::IsInputOverrideContextActive() const
 {
 	if (WindowRuntimeState.HasCombatLockState())
 	{
 		return true;
 	}
 
-	if (IsWeaponSwitchPresentationCancelContextActive())
+	if (IsSpecialWeaponSwitchPresentationInterruptContextActive())
 	{
 		return true;
 	}
@@ -1962,7 +2168,7 @@ bool UHeroCombatComponent::IsAbilityCancelContextActive() const
 	const UActionCombatReactComponent* CombatReactComponent = GetOwningCombatReactComponent();
 	if (CombatReactComponent
 		&& CombatReactComponent->IsRecoveryPhaseActive()
-		&& AbilityWindowRuntimeState.IsAbilityCancelWindowActive())
+		&& AbilityWindowRuntimeState.IsRecoveryCancelWindowActive())
 	{
 		return true;
 	}
@@ -1977,46 +2183,175 @@ bool UHeroCombatComponent::IsAbilityCancelContextActive() const
 		|| OwnerASC->HasMatchingGameplayTag(ActionGameplayTags::State_Ability_Execution_Active);
 }
 
-bool UHeroCombatComponent::IsWeaponSwitchPresentationChainContextActive() const
+bool UHeroCombatComponent::IsSpecialWeaponSwitchPresentationChainContextActive() const
 {
 	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
 	return WeaponSwitchComponent
-		&& WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
+		&& WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
 		&& AbilityWindowRuntimeState.IsAbilityChainWindowActive();
 }
 
-bool UHeroCombatComponent::IsWeaponSwitchPresentationCancelContextActive() const
+bool UHeroCombatComponent::IsSpecialWeaponSwitchPresentationInterruptContextActive() const
 {
 	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
 	return WeaponSwitchComponent
-		&& WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
-		&& AbilityWindowRuntimeState.IsAbilityCancelWindowActive();
+		&& WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
+		&& AbilityWindowRuntimeState.IsAbilityInterruptWindowActive();
 }
 
-bool UHeroCombatComponent::IsAbilityCancelInputAllowedNow(const FGameplayTag InputTag) const
+bool UHeroCombatComponent::IsInterruptWindowInputAllowedForInputLayer(const FGameplayTag InputTag) const
 {
-	return InputTag.IsValid()
-		&& AbilityWindowRuntimeState.IsAbilityCancelWindowActive()
-		&& AbilityWindowRuntimeState.AcceptsCancelInput(InputTag);
+	return IsAbilityInterruptInputAllowedNow(InputTag);
 }
 
-bool UHeroCombatComponent::IsWeaponSwitchPresentationChainInputAllowed(const FGameplayTag InputTag) const
+bool UHeroCombatComponent::IsCombatLockInputAllowedByInterruptWindow(const FGameplayTag InputTag) const
+{
+	return AbilityWindowRuntimeState.IsAbilityInterruptWindowActive()
+		&& IsInterruptWindowInputAllowedForInputLayer(InputTag);
+}
+
+bool UHeroCombatComponent::IsBufferedInputAllowedByInterruptOverrideContext(const FGameplayTag InputTag) const
+{
+	return !AbilityWindowRuntimeState.IsAbilityInterruptWindowActive()
+		|| IsInterruptWindowInputAllowedForInputLayer(InputTag);
+}
+
+bool UHeroCombatComponent::IsInputAllowedByCurrentOverrideContext(const FGameplayTag InputTag) const
+{
+	if (const UActionCombatReactComponent* CombatReactComponent = GetOwningCombatReactComponent())
+	{
+		if (CombatReactComponent->IsRecoveryPhaseActive())
+		{
+			return AbilityWindowRuntimeState.IsRecoveryCancelWindowActive()
+				&& AbilityWindowRuntimeState.AcceptsRecoveryCancelInput(InputTag);
+		}
+	}
+
+	// 走到这里说明当前读的是“主动 GA 输入改写上下文”。
+	// 它只回答输入层窗口是否放行，不替代 ASC owner-aware interrupt 裁决。
+	return IsInterruptWindowInputAllowedForInputLayer(InputTag);
+}
+
+bool UHeroCombatComponent::PassesSharedNonAttackAbilityHardGate(
+	const FGameplayTag InputTag,
+	FString* OutFailureReason) const
+{
+	if (OutFailureReason)
+	{
+		OutFailureReason->Reset();
+	}
+
+	const UHeroLoadoutStateComponent* LoadoutStateComponent = GetOwningHeroLoadoutStateComponent();
+	if (!LoadoutStateComponent)
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason =
+				TEXT("shared non-attack ability hard gate failed because loadout state component is invalid");
+		}
+		return false;
+	}
+
+	if (!LoadoutStateComponent->IsWeaponLoadoutStartupReady())
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = FString::Printf(
+				TEXT("shared non-attack ability hard gate failed because startup is not ready. state=%s pending=%d total=%d failure=%s"),
+				*HeroCombatStartupStateToDebugText(LoadoutStateComponent->GetWeaponLoadoutStartupState()),
+				LoadoutStateComponent->GetWeaponLoadoutStartupPendingSlotCount(),
+				LoadoutStateComponent->GetWeaponLoadoutStartupTotalSlotCount(),
+				LoadoutStateComponent->GetWeaponLoadoutStartupFailureReason().IsEmpty()
+					? TEXT("none")
+					: *LoadoutStateComponent->GetWeaponLoadoutStartupFailureReason());
+		}
+		return false;
+	}
+
+	if (!InputTag.IsValid())
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("shared non-attack ability hard gate failed because input tag is invalid");
+		}
+		return false;
+	}
+
+	if (IsNonAttackInputBlockedByCombatReact(InputTag))
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = FString::Printf(
+				TEXT("shared non-attack ability hard gate failed because combat react still blocks input %s"),
+				*HeroCombatInputTagToDebugText(InputTag));
+		}
+		return false;
+	}
+
+	if (IsNonAttackInputBlockedByAirborneState())
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("shared non-attack ability hard gate failed because airborne state blocks non-attack activation");
+		}
+		return false;
+	}
+
+	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchTransactionInProgress())
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("shared non-attack ability hard gate failed because weapon switch transaction is in progress");
+		}
+		return false;
+	}
+
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("shared non-attack ability hard gate failed because special weapon switch presentation is active");
+		}
+		return false;
+	}
+
+	if (WindowRuntimeState.HasCombatLockState())
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("shared non-attack ability hard gate failed because combat lock is active");
+		}
+		return false;
+	}
+
+	return true;
+}
+
+bool UHeroCombatComponent::IsSpecialWeaponSwitchPresentationChainInputAllowed(const FGameplayTag InputTag) const
 {
 	return InputTag.IsValid()
-		&& IsWeaponSwitchPresentationChainContextActive()
+		&& IsSpecialWeaponSwitchPresentationChainContextActive()
 		&& AbilityWindowRuntimeState.AcceptsChainInput(InputTag);
 }
 
-bool UHeroCombatComponent::IsWeaponSwitchPresentationCancelInputAllowed(const FGameplayTag InputTag) const
+bool UHeroCombatComponent::IsSpecialWeaponSwitchPresentationInterruptInputAllowed(const FGameplayTag InputTag) const
 {
-	return IsWeaponSwitchPresentationCancelContextActive()
-		&& IsAbilityCancelInputAllowedNow(InputTag);
+	// 切武表现期继续复用输入层 interrupt 白名单，
+	// 但这层语义仍然只是“当前表现期是否允许这次输入抢入”，不是“哪个 active GA 对这次抢入负责”。
+	return IsSpecialWeaponSwitchPresentationInterruptContextActive()
+		&& IsInterruptWindowInputAllowedForInputLayer(InputTag);
 }
 
 bool UHeroCombatComponent::CanBufferCombatInputNow(const FGameplayTag InputTag) const
 {
 	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
 	const UActionAbilitySystemComponent* OwnerASC = GetOwningActionAbilitySystemComponent();
+	const bool bUsesRelationshipBufferedNonAttackModel =
+		InputTag == ActionGameplayTags::InputTag_GameplayAbility_Dodge
+		|| InputTag == ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense
+		|| IsWeaponSwitchInputTag(InputTag)
+		|| ActionGameplayTags::IsSpiritSkillInputTag(InputTag);
 
 	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_LockTarget)
 	{
@@ -2045,11 +2380,25 @@ bool UHeroCombatComponent::CanBufferCombatInputNow(const FGameplayTag InputTag) 
 		return false;
 	}
 
-	if (WeaponSwitchComponent
-		&& WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
-		&& !IsWeaponSwitchPresentationCancelInputAllowed(InputTag))
+	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
 	{
-		return !IsWeaponSwitchInputTag(InputTag);
+		// Execution 当前固定为即时强接管输入：
+		// 只认本次 Pressed + 当前确实可处决，不进入共享缓冲。
+		return false;
+	}
+
+	if (WeaponSwitchComponent
+		&& WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
+	{
+		if (bUsesRelationshipBufferedNonAttackModel)
+		{
+			return false;
+		}
+
+		if (!IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
+		{
+			return !IsWeaponSwitchInputTag(InputTag);
+		}
 	}
 
 	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchTransactionInProgress())
@@ -2057,7 +2406,7 @@ bool UHeroCombatComponent::CanBufferCombatInputNow(const FGameplayTag InputTag) 
 		return false;
 	}
 
-	if (IsAbilityCancelContextActive())
+	if (IsInputOverrideContextActive())
 	{
 		if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution
 			&& OwnerASC
@@ -2068,12 +2417,24 @@ bool UHeroCombatComponent::CanBufferCombatInputNow(const FGameplayTag InputTag) 
 
 		if (WindowRuntimeState.HasCombatLockState())
 		{
-			return AbilityWindowRuntimeState.IsAbilityCancelWindowActive()
-				&& AbilityWindowRuntimeState.AcceptsCancelInput(InputTag);
+			return IsCombatLockInputAllowedByInterruptWindow(InputTag);
 		}
 
-		return !AbilityWindowRuntimeState.IsAbilityCancelWindowActive()
-			|| AbilityWindowRuntimeState.AcceptsCancelInput(InputTag);
+		if (const UActionCombatReactComponent* CombatReactComponent = GetOwningCombatReactComponent())
+		{
+			if (CombatReactComponent->IsRecoveryPhaseActive())
+			{
+				return !AbilityWindowRuntimeState.IsRecoveryCancelWindowActive()
+					|| IsCombatReactRecoveryCancelInputAllowed(InputTag);
+			}
+		}
+
+		if (bUsesRelationshipBufferedNonAttackModel)
+		{
+			return true;
+		}
+
+		return IsBufferedInputAllowedByInterruptOverrideContext(InputTag);
 	}
 
 	if (!IsAttackEnabled())
@@ -2104,6 +2465,12 @@ bool UHeroCombatComponent::CanConsumeBufferedInputNow(const FActionBufferedInput
 		return false;
 	}
 
+	if (BufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		// 历史残留的 Execution 缓冲不再允许回放。
+		return false;
+	}
+
 	if (!IsAttackInputTag(BufferedInput.InputTag) && IsNonAttackInputBlockedByAirborneState())
 	{
 		return false;
@@ -2122,8 +2489,8 @@ bool UHeroCombatComponent::CanConsumeBufferedInputNow(const FActionBufferedInput
 	}
 
 	if (WeaponSwitchComponent
-		&& WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
-		&& !IsWeaponSwitchPresentationCancelInputAllowed(BufferedInput.InputTag))
+		&& WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
+		&& !IsSpecialWeaponSwitchPresentationInterruptInputAllowed(BufferedInput.InputTag))
 	{
 		return false;
 	}
@@ -2133,18 +2500,35 @@ bool UHeroCombatComponent::CanConsumeBufferedInputNow(const FActionBufferedInput
 		return false;
 	}
 
-	if (IsWeaponSwitchInputTag(BufferedInput.InputTag) && IsWeaponSwitchBlockedByCombatState(BufferedInput.InputTag))
-	{
-		return false;
-	}
-
 	if (IsWeaponSwitchInputTag(BufferedInput.InputTag) && IsWeaponSwitchBlockedByCooldown())
 	{
 		return false;
 	}
 
-	if (IsAbilityCancelContextActive())
+	if (IsInputOverrideContextActive())
 	{
+		if (BufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_Dodge
+			|| BufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense)
+		{
+			if (const UHeroDefenseComponent* DefenseComponent = GetOwningHeroDefenseComponent())
+			{
+				return DefenseComponent->CanEnterRelationshipActivationForNonAttackInput(
+					BufferedInput.InputTag);
+			}
+
+			return false;
+		}
+
+		if (ActionGameplayTags::IsSpiritSkillInputTag(BufferedInput.InputTag))
+		{
+			return PassesSharedNonAttackAbilityHardGate(BufferedInput.InputTag);
+		}
+
+		if (IsWeaponSwitchInputTag(BufferedInput.InputTag))
+		{
+			return PassesSharedNonAttackAbilityHardGate(BufferedInput.InputTag);
+		}
+
 		if (const UHeroDefenseComponent* DefenseComponent = GetOwningHeroDefenseComponent())
 		{
 			return DefenseComponent->CanActivateNonAttackInputNow(BufferedInput.InputTag);
@@ -2156,6 +2540,218 @@ bool UHeroCombatComponent::CanConsumeBufferedInputNow(const FActionBufferedInput
 	return true;
 }
 
+FString UHeroCombatComponent::DescribeBufferedNonAttackQueueGateForDebug(const FGameplayTag& InputTag) const
+{
+	const FString InputTagText = HeroCombatInputTagToDebugText(InputTag);
+	const bool bUsesRelationshipBufferedNonAttackModel =
+		InputTag == ActionGameplayTags::InputTag_GameplayAbility_Dodge
+		|| InputTag == ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense
+		|| IsWeaponSwitchInputTag(InputTag)
+		|| ActionGameplayTags::IsSpiritSkillInputTag(InputTag);
+
+	if (!InputTag.IsValid())
+	{
+		return TEXT("Non-attack buffered queue: block, input=Invalid, layer=BufferedInputState, reason=input tag is invalid.");
+	}
+
+	if (IsNonAttackInputBlockedByAirborneState())
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered queue: block, input=%s, layer=Airborne, reason=character is in falling state."),
+			*InputTagText);
+	}
+
+	if (IsNonAttackInputBlockedByCombatReact(InputTag))
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered queue: block, input=%s, layer=CombatReact, reason=combat react still blocks non-attack buffering."),
+			*InputTagText);
+	}
+
+	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered queue: block, input=%s, layer=ExecutionImmediateOnly, reason=execution only accepts the current pressed input and never enters shared buffering."),
+			*InputTagText);
+	}
+
+	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
+	{
+		if (bUsesRelationshipBufferedNonAttackModel)
+		{
+			return FString::Printf(
+				TEXT("Non-attack buffered queue: block, input=%s, layer=WeaponSwitchPresentation, reason=relationship-style non-attack buffering is blocked during special weapon switch presentation."),
+				*InputTagText);
+		}
+
+		if (!IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
+		{
+			return FString::Printf(
+				TEXT("Non-attack buffered queue: block, input=%s, layer=WeaponSwitchPresentation, reason=special weapon switch presentation rejected buffering by old input-layer override gate."),
+				*InputTagText);
+		}
+	}
+
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchTransactionInProgress())
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered queue: block, input=%s, layer=WeaponSwitchTransaction, reason=weapon switch transaction is still active."),
+			*InputTagText);
+	}
+
+	const UActionAbilitySystemComponent* OwnerASC = GetOwningActionAbilitySystemComponent();
+	if (IsInputOverrideContextActive())
+	{
+		if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution
+			&& OwnerASC
+			&& OwnerASC->HasMatchingGameplayTag(ActionGameplayTags::State_Ability_Execution_Active))
+		{
+			return FString::Printf(
+				TEXT("Non-attack buffered queue: block, input=%s, layer=ExecutionOverride, reason=execution does not buffer itself while execution override context is active."),
+				*InputTagText);
+		}
+
+		if (WindowRuntimeState.HasCombatLockState())
+		{
+			return FString::Printf(
+				TEXT("Non-attack buffered queue: block, input=%s, layer=CombatLock, reason=current combat lock did not allow buffering through interrupt window."),
+				*InputTagText);
+		}
+
+		if (const UActionCombatReactComponent* CombatReactComponent = GetOwningCombatReactComponent())
+		{
+			if (CombatReactComponent->IsRecoveryPhaseActive())
+			{
+				return FString::Printf(
+					TEXT("Non-attack buffered queue: block, input=%s, layer=CombatReactRecovery, reason=recovery cancel window did not allow buffering."),
+					*InputTagText);
+			}
+		}
+
+		if (bUsesRelationshipBufferedNonAttackModel)
+		{
+			return FString::Printf(
+				TEXT("Non-attack buffered queue: allow, input=%s, layer=RelationshipBufferEntry, reason=shared override prechecks passed and buffering may proceed without old interrupt whitelist gating."),
+				*InputTagText);
+		}
+
+		return DescribeNonAttackInputGateForDebug(InputTag);
+	}
+
+	if (!IsAttackEnabled())
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered queue: allow, input=%s, layer=BufferedQueue, reason=attack input is currently disabled and buffering may preserve intent for later replay."),
+			*InputTagText);
+	}
+
+	if (IsWeaponSwitchInputTag(InputTag) && IsWeaponSwitchBlockedByCombatState(InputTag))
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered queue: allow, input=%s, layer=WeaponSwitchBufferFallback, reason=weapon switch is currently blocked by combat state and may be buffered for later replay."),
+			*InputTagText);
+	}
+
+	return FString::Printf(
+		TEXT("Non-attack buffered queue: block, input=%s, layer=BufferedQueue, reason=current buffering rules rejected this input."),
+		*InputTagText);
+}
+
+FString UHeroCombatComponent::DescribeBufferedNonAttackReplayGateForDebug(
+	const FActionBufferedInput& BufferedInput) const
+{
+	const FString InputTagText = HeroCombatInputTagToDebugText(BufferedInput.InputTag);
+	const UHeroCombatInputComponent* InputComponent = GetOwningHeroCombatInputComponent();
+	if (BufferedInput.TriggerEvent == EActionInputEvent::Held
+		&& (!InputComponent || InputComponent->GetInputButtonStateByTag(BufferedInput.InputTag) != EActionInputButtonState::Held))
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=BufferedInputState, reason=held input is no longer active."),
+			*InputTagText);
+	}
+
+	if (!BufferedInput.InputTag.IsValid())
+	{
+		return TEXT("Non-attack buffered replay: block, input=Invalid, layer=BufferedInputState, reason=input tag is invalid.");
+	}
+
+	if (BufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=ExecutionImmediateOnly, reason=execution does not support shared buffered replay."),
+			*InputTagText);
+	}
+
+	if (IsNonAttackInputBlockedByAirborneState())
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=Airborne, reason=character is in falling state."),
+			*InputTagText);
+	}
+
+	if (IsNonAttackInputBlockedByCombatReact(BufferedInput.InputTag))
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=CombatReact, reason=combat react still blocks non-attack replay."),
+			*InputTagText);
+	}
+
+	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
+	if (WeaponSwitchComponent
+		&& WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
+		&& !IsSpecialWeaponSwitchPresentationInterruptInputAllowed(BufferedInput.InputTag))
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=WeaponSwitchPresentation, reason=special weapon switch presentation rejected replay."),
+			*InputTagText);
+	}
+
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchTransactionInProgress())
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=WeaponSwitchTransaction, reason=weapon switch transaction is still active."),
+			*InputTagText);
+	}
+
+	if (IsWeaponSwitchInputTag(BufferedInput.InputTag) && IsWeaponSwitchBlockedByCooldown())
+	{
+		return FString::Printf(
+			TEXT("Non-attack buffered replay: block, input=%s, layer=WeaponSwitchCooldown, reason=weapon switch cooldown is active."),
+			*InputTagText);
+	}
+
+	if (IsInputOverrideContextActive())
+	{
+		const bool bUsesRelationshipReplayPrecheck =
+			BufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_Dodge
+			|| BufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense
+			|| IsWeaponSwitchInputTag(BufferedInput.InputTag)
+			|| ActionGameplayTags::IsSpiritSkillInputTag(BufferedInput.InputTag);
+		if (bUsesRelationshipReplayPrecheck)
+		{
+			FString FailureReason;
+			if (!PassesSharedNonAttackAbilityHardGate(BufferedInput.InputTag, &FailureReason))
+			{
+				return FString::Printf(
+					TEXT("Non-attack buffered replay: block, input=%s, layer=SharedHardGate, reason=%s"),
+					*InputTagText,
+					FailureReason.IsEmpty() ? TEXT("shared hard gate rejected replay") : *FailureReason);
+			}
+
+			return FString::Printf(
+				TEXT("Non-attack buffered replay: allow, input=%s, layer=RelationshipReplayEntry, reason=shared hard gate passed and replay may enter ASC relationship resolution."),
+				*InputTagText);
+		}
+
+		return DescribeNonAttackInputGateForDebug(BufferedInput.InputTag);
+	}
+
+	return FString::Printf(
+		TEXT("Non-attack buffered replay: allow, input=%s, layer=ReplayPrecheck, reason=replay may re-enter formal activation."),
+		*InputTagText);
+}
+
 bool UHeroCombatComponent::ShouldBufferInput(const FGameplayTag InputTag) const
 {
 	return CanBufferCombatInputNow(InputTag);
@@ -2163,6 +2759,11 @@ bool UHeroCombatComponent::ShouldBufferInput(const FGameplayTag InputTag) const
 
 bool UHeroCombatComponent::ShouldQueueBufferedInput(const FGameplayTag InputTag, const bool bCanBuffer) const
 {
+	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		return false;
+	}
+
 	return bCanBuffer && ShouldBufferInput(InputTag);
 }
 
@@ -2198,6 +2799,13 @@ bool UHeroCombatComponent::ProcessAbilityInput(
 	if (HandleCombatActionInputByEvent(OwnerASC, InputTag, InputEvent, ResolvedAttackRequestTag))
 	{
 		return true;
+	}
+
+	if (InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		// Execution 当前只认“这次 Pressed 当场有没有合法处决机会”。
+		// 若当帧没起手，不再进入共享缓冲、Held 回放或 Released 补起手语义。
+		return false;
 	}
 
 	if (InputEvent == EActionInputEvent::Pressed
@@ -2288,9 +2896,18 @@ bool UHeroCombatComponent::ProcessAbilityInput(
 		}
 	}
 
-	if (ShouldQueueBufferedInput(InputTag, bCanBuffer))
+	const bool bShouldQueueBufferedInput = ShouldQueueBufferedInput(InputTag, bCanBuffer);
+	if (bShouldQueueBufferedInput)
 	{
 		QueueBufferedInput(InputTag, InputEvent, ResolvedAttackRequestTag);
+	}
+	else if (!IsAttackInputTag(InputTag) && bCanBuffer)
+	{
+		UE_LOG(
+			LogHeroCombatComponent,
+			Log,
+			TEXT("%s"),
+			*DescribeBufferedNonAttackQueueGateForDebug(InputTag));
 	}
 
 	return false;
@@ -2339,7 +2956,7 @@ FString UHeroCombatComponent::DescribeNonAttackInputGateForDebug(const FGameplay
 
 	if (CombatReactComponent && CombatReactComponent->IsRecoveryPhaseActive())
 	{
-		if (!AbilityWindowRuntimeState.IsAbilityCancelWindowActive())
+		if (!AbilityWindowRuntimeState.IsRecoveryCancelWindowActive())
 		{
 			return FString::Printf(
 				TEXT("Non-attack input gate blocked: input=%s layer=CombatReactRecovery reason=recovery phase active and cancel window closed. %s"),
@@ -2347,7 +2964,7 @@ FString UHeroCombatComponent::DescribeNonAttackInputGateForDebug(const FGameplay
 				*CombatReactComponent->DescribeCurrentCombatReactState());
 		}
 
-		if (!AbilityWindowRuntimeState.AcceptsCancelInput(InputTag))
+		if (!AbilityWindowRuntimeState.AcceptsRecoveryCancelInput(InputTag))
 		{
 			return FString::Printf(
 				TEXT("Non-attack input gate blocked: input=%s layer=CombatReactRecovery reason=recovery phase active and cancel whitelist rejected input. %s"),
@@ -2374,17 +2991,17 @@ FString UHeroCombatComponent::DescribeNonAttackInputGateForDebug(const FGameplay
 			*InputTagText);
 	}
 
-	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchPresentationActive())
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
 	{
-		if (IsWeaponSwitchPresentationCancelInputAllowed(InputTag))
+		if (IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
 		{
 			return FString::Printf(
-				TEXT("Non-attack input gate: allow, input=%s, layer=WeaponSwitchCancelWindow, special=%s, reason=cancel window whitelist allows it during weapon switch presentation."),
+				TEXT("Non-attack input gate: allow, input=%s, layer=WeaponSwitchInterruptWindow, special=%s, reason=interrupt window whitelist allows it during weapon switch presentation."),
 				*InputTagText,
 				*HeroCombatBoolToDebugText(WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()));
 		}
 
-		if (IsWeaponSwitchPresentationChainContextActive())
+		if (IsSpecialWeaponSwitchPresentationChainContextActive())
 		{
 			return FString::Printf(
 				TEXT("Non-attack input gate: block, input=%s, layer=WeaponSwitchChainWindow, special=%s, reason=chain window is active but only attack can use it during weapon switch presentation."),
@@ -2409,7 +3026,7 @@ FString UHeroCombatComponent::DescribeNonAttackInputGateForDebug(const FGameplay
 			*HeroCombatBoolToDebugText(WindowRuntimeState.IsPerfectDodgeWindowActive()));
 	}
 
-	if (IsAbilityCancelContextActive())
+	if (IsInputOverrideContextActive())
 	{
 		const UActionAbilitySystemComponent* OwnerASC = GetOwningActionAbilitySystemComponent();
 		const bool bAttackAbilityActive =
@@ -2417,22 +3034,43 @@ FString UHeroCombatComponent::DescribeNonAttackInputGateForDebug(const FGameplay
 		const bool bExecutionAbilityActive =
 			OwnerASC && OwnerASC->HasMatchingGameplayTag(ActionGameplayTags::State_Ability_Execution_Active);
 
-		if (!AbilityWindowRuntimeState.IsAbilityCancelWindowActive())
+		if (CombatReactComponent && CombatReactComponent->IsRecoveryPhaseActive())
+		{
+			if (!AbilityWindowRuntimeState.IsRecoveryCancelWindowActive())
+			{
+				return FString::Printf(
+					TEXT("Non-attack input gate: block, input=%s, layer=CombatReactRecovery, reason=recovery cancel window is closed."),
+					*InputTagText);
+			}
+
+			if (!IsCombatReactRecoveryCancelInputAllowed(InputTag))
+			{
+				return FString::Printf(
+					TEXT("Non-attack input gate: block, input=%s, layer=CombatReactRecovery, reason=recovery cancel whitelist rejected input."),
+					*InputTagText);
+			}
+
+			return FString::Printf(
+				TEXT("Non-attack input gate: allow, input=%s, layer=CombatReactRecoveryCancelWindow, reason=recovery cancel whitelist allows it."),
+				*InputTagText);
+		}
+
+		if (!AbilityWindowRuntimeState.IsAbilityInterruptWindowActive())
 		{
 			return FString::Printf(
-                TEXT("Non-attack input gate: block, input=%s, layer=CancelContext, reason=active ability cancel context exists but cancel window is closed. attackActive=%s, executionActive=%s."),
+                TEXT("Non-attack input gate: block, input=%s, layer=InterruptContext, reason=active interrupt context exists but interrupt window is closed. attackActive=%s, executionActive=%s."),
 				*InputTagText,
 				*HeroCombatBoolToDebugText(bAttackAbilityActive),
 				*HeroCombatBoolToDebugText(bExecutionAbilityActive));
 		}
 
-		if (!IsAbilityCancelInputAllowedNow(InputTag))
+		if (!IsInputAllowedByCurrentOverrideContext(InputTag))
 		{
 			return FString::Printf(
-                TEXT("Non-attack input gate: block, input=%s, layer=CancelWindow, windowOpen=%s, whitelistHit=%s."),
+                TEXT("Non-attack input gate: block, input=%s, layer=InterruptWindowInputGate, windowOpen=%s, inputWhitelistHit=%s, note=this reads input-layer interrupt whitelist only, not ASC owner-aware relationship authority."),
 				*InputTagText,
-				*HeroCombatBoolToDebugText(AbilityWindowRuntimeState.IsAbilityCancelWindowActive()),
-				*HeroCombatBoolToDebugText(AbilityWindowRuntimeState.AcceptsCancelInput(InputTag)));
+				*HeroCombatBoolToDebugText(AbilityWindowRuntimeState.IsAbilityInterruptWindowActive()),
+				*HeroCombatBoolToDebugText(IsInterruptWindowInputAllowedForInputLayer(InputTag)));
 		}
 
 		if (bIsWeaponSwitchInput && WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchBlockedByCooldown())
@@ -2442,15 +3080,8 @@ FString UHeroCombatComponent::DescribeNonAttackInputGateForDebug(const FGameplay
 				*InputTagText);
 		}
 
-		if (CombatReactComponent && CombatReactComponent->IsRecoveryPhaseActive())
-		{
-			return FString::Printf(
-                TEXT("Non-attack input gate: allow, input=%s, layer=CombatReactRecoveryCancelWindow, reason=recovery cancel whitelist allows it."),
-				*InputTagText);
-		}
-
 		return FString::Printf(
-            TEXT("Non-attack input gate: allow, input=%s, layer=CancelWindow, reason=cancel window whitelist allows it."),
+            TEXT("Non-attack input gate: allow, input=%s, layer=InterruptWindowInputGate, reason=input-layer interrupt whitelist allows it, note=this does not imply ASC owner-aware relationship authority."),
 			*InputTagText);
 	}
 
@@ -2500,7 +3131,7 @@ void UHeroCombatComponent::RepairStaleCombatRuntimeIfNeeded()
 	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = GetOwningHeroWeaponSwitchComponent();
 	const bool bHasCombatReactLock = CombatReactComponent && CombatReactComponent->IsCombatReactActive();
 	const bool bHasWeaponSwitchLock = WeaponSwitchComponent
-		&& (WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
+		&& (WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
 			|| WeaponSwitchComponent->IsWeaponSwitchTransactionInProgress());
 	const bool bHasCombatModeTransitionLock = HasActiveCombatModeTransitionRuntime();
 	if (HasAnyAuthoritativeActiveCombatAbility()
@@ -2513,7 +3144,8 @@ void UHeroCombatComponent::RepairStaleCombatRuntimeIfNeeded()
 
 	const bool bAttackDisabledBeforeRepair = !IsAttackEnabled();
 	const bool bAbilityChainWindowActiveBeforeRepair = AbilityWindowRuntimeState.IsAbilityChainWindowActive();
-	const bool bAbilityCancelWindowActiveBeforeRepair = AbilityWindowRuntimeState.IsAbilityCancelWindowActive();
+	const bool bAbilityInterruptWindowActiveBeforeRepair = AbilityWindowRuntimeState.IsAbilityInterruptWindowActive();
+	const bool bRecoveryCancelWindowActiveBeforeRepair = AbilityWindowRuntimeState.IsRecoveryCancelWindowActive();
 	const bool bDefenseActiveBeforeRepair = WindowRuntimeState.IsDefenseActive();
 	const bool bParryWindowActiveBeforeRepair = WindowRuntimeState.IsParryWindowActive();
 	const bool bDodgeActiveBeforeRepair = WindowRuntimeState.IsDodgeActive();
@@ -2537,9 +3169,15 @@ void UHeroCombatComponent::RepairStaleCombatRuntimeIfNeeded()
 		bRepaired = true;
 	}
 
-	if (bAbilityCancelWindowActiveBeforeRepair)
+	if (bAbilityInterruptWindowActiveBeforeRepair)
 	{
-		CloseAbilityCancelWindow();
+		ClearAbilityInterruptWindowForRuntimeRepair();
+		bRepaired = true;
+	}
+
+	if (bRecoveryCancelWindowActiveBeforeRepair)
+	{
+		CloseCombatReactRecoveryCancelWindow();
 		bRepaired = true;
 	}
 
@@ -2588,10 +3226,11 @@ void UHeroCombatComponent::RepairStaleCombatRuntimeIfNeeded()
 	UE_LOG(
 		LogHeroCombatComponent,
 		Warning,
-		TEXT("Detected lingering public combat runtime state without authoritative combat lock; auto repaired. Before: AttackDisabled=%d ChainWindow=%d CancelWindow=%d Defense=%d Parry=%d Dodge=%d PerfectDodge=%d DefenseMode=%d RunningMontage=%s CombatMode=%d After: AttackEnabled=%d CombatMode=%d Defense=%d Dodge=%d"),
+		TEXT("Detected lingering public combat runtime state without authoritative combat lock; auto repaired. Before: AttackDisabled=%d ChainWindow=%d InterruptWindow=%d RecoveryCancelWindow=%d Defense=%d Parry=%d Dodge=%d PerfectDodge=%d DefenseMode=%d RunningMontage=%s CombatMode=%d After: AttackEnabled=%d CombatMode=%d Defense=%d Dodge=%d"),
 		bAttackDisabledBeforeRepair ? 1 : 0,
 		bAbilityChainWindowActiveBeforeRepair ? 1 : 0,
-		bAbilityCancelWindowActiveBeforeRepair ? 1 : 0,
+		bAbilityInterruptWindowActiveBeforeRepair ? 1 : 0,
+		bRecoveryCancelWindowActiveBeforeRepair ? 1 : 0,
 		bDefenseActiveBeforeRepair ? 1 : 0,
 		bParryWindowActiveBeforeRepair ? 1 : 0,
 		bDodgeActiveBeforeRepair ? 1 : 0,
@@ -2632,8 +3271,8 @@ bool UHeroCombatComponent::IsCombatReactRecoveryCancelInputAllowed(const FGamepl
 	{
 		return CombatReactComponent->IsRecoveryPhaseActive()
 			&& InputTag.IsValid()
-			&& AbilityWindowRuntimeState.IsAbilityCancelWindowActive()
-			&& AbilityWindowRuntimeState.AcceptsCancelInput(InputTag);
+			&& AbilityWindowRuntimeState.IsRecoveryCancelWindowActive()
+			&& AbilityWindowRuntimeState.AcceptsRecoveryCancelInput(InputTag);
 	}
 
 	return false;
@@ -2749,7 +3388,6 @@ void UHeroCombatComponent::ResetCombatStateForWeaponSwitch()
 	{
 		WeaponSwitchComponent->ClearDeferredQueuedWeaponSwitchConsumeRequest();
 	}
-	ResetAllSpiritSkillComboStates();
 	ResetAttackPresentationRuntime(true);
 }
 

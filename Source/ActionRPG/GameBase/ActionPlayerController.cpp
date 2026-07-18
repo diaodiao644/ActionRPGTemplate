@@ -332,6 +332,29 @@ void AActionPlayerController::ActionDebug_PrintHeroCombatAbilityRelationshipAudi
 	ControlledHeroCharacter->PrintGrantedHeroCombatAbilityRelationshipAudit();
 }
 
+void AActionPlayerController::ActionDebug_PrintHeroCombatAbilityCategoryAudit()
+{
+	if (!ControlledHeroCharacter.IsValid())
+	{
+		Debug::Print(TEXT("[GA CategoryAudit] 当前控制器没有有效的 Hero 角色。"), FColor::Red, 4.0f);
+		return;
+	}
+
+	ControlledHeroCharacter->PrintGrantedHeroCombatAbilityCategoryAudit();
+}
+
+void AActionPlayerController::ActionDebug_PrintHeroCombatAbilityRelationshipFailureHistory(
+	const int32 MaxEntries)
+{
+	if (!ControlledHeroCharacter.IsValid())
+	{
+		Debug::Print(TEXT("[GA FailureHistory] 当前控制器没有有效的 Hero 角色。"), FColor::Red, 4.0f);
+		return;
+	}
+
+	ControlledHeroCharacter->PrintHeroCombatAbilityRelationshipFailureHistory(MaxEntries);
+}
+
 void AActionPlayerController::ActionDebug_PrintHeroCombatAbilityDebug(const FString& InputTagName)
 {
 	if (!ControlledHeroCharacter.IsValid())
@@ -352,4 +375,26 @@ void AActionPlayerController::ActionDebug_PrintHeroCombatAbilityDebug(const FStr
 	}
 
 	ControlledHeroCharacter->PrintHeroCombatAbilityDebugByInputTag(InputTag);
+}
+
+void AActionPlayerController::ActionDebug_PrintHeroCombatAbilityCategoryDebug(const FString& InputTagName)
+{
+	if (!ControlledHeroCharacter.IsValid())
+	{
+		Debug::Print(TEXT("[GA CategoryAudit] 当前控制器没有有效的 Hero 角色。"), FColor::Red, 4.0f);
+		return;
+	}
+
+	const FGameplayTag InputTag =
+		UGameplayTagsManager::Get().RequestGameplayTag(FName(*InputTagName), false);
+	if (!InputTag.IsValid())
+	{
+		Debug::Print(
+			FString::Printf(TEXT("[GA CategoryAudit] 输入标签无效：%s"), *InputTagName),
+			FColor::Yellow,
+			4.0f);
+		return;
+	}
+
+	ControlledHeroCharacter->PrintHeroCombatAbilityCategoryAuditByInputTag(InputTag);
 }

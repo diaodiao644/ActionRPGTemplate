@@ -34,14 +34,14 @@ public:
 	UHeroGA_Attack();
 
 public:
-	/** Ability 激活入口：重置本次攻击的局部时序状态，并驱动完整的攻击解析与执行流程。 */
+	/** Ability 激活入口：重置本次攻击的局部时序状态，并驱动完整的攻击解析与执行流程。它不在这里创建长期攻击状态源。 */
 	virtual void ActivateAbility(
 		FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
 		FGameplayAbilityActivationInfo ActivationInfo,
 		const FGameplayEventData* TriggerEventData) override;
 
-	/** Ability 结束入口：把所有结束路径统一收束到一次正式收尾，再交给父类结束能力。 */
+	/** Ability 结束入口：把所有结束路径统一收束到一次正式收尾，再交给父类结束能力。它兜底 Ability 对象生命周期，不单独定义攻击正式状态。 */
 	virtual void EndAbility(
 		FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -50,7 +50,7 @@ public:
 		bool bWasCancelled) override;
 
 protected:
-	/** 在关系系统真正放行前，先校验当前武器槽、武器定义、分支配置与特殊请求资格。这里只做补充预检，不写正式运行态。 */
+	/** 在关系系统真正放行前，先校验当前武器槽、武器定义、分支配置与特殊请求资格。这里只做补充预检，不写正式攻击运行态。 */
 	virtual bool ValidateRelationshipActivationPreconditions(FString& OutFailureReason) override;
 
 	/** 蒙太奇自然播完时的回调。它不直接写业务状态，只负责把结束路径汇总到统一收尾口。 */
@@ -59,40 +59,40 @@ protected:
 	/** 蒙太奇进入 BlendOut 时的回调。某些攻击会先收到 BlendOut 再收到 Completed，因此这里只做汇流。 */
 	virtual void OnHeroMontageBlendOut(FName MontageContext) override;
 
-	/** 蒙太奇被中断时的回调。 */
+	/** 蒙太奇被中断时的回调。它只汇流到统一收尾，不单独定义攻击结束语义。 */
 	virtual void OnHeroMontageInterrupted(FName MontageContext) override;
 
-	/** 蒙太奇被取消时的回调。 */
+	/** 蒙太奇被取消时的回调。它只汇流到统一收尾，不单独定义攻击结束语义。 */
 	virtual void OnHeroMontageCancelled(FName MontageContext) override;
 
-	/** 对外统一的收尾入口，避免多个蒙太奇回调重复触发正式收尾，再统一回到 EndAbility。 */
+	/** 对外统一的收尾入口，避免多个蒙太奇回调重复触发正式收尾，再统一回到 EndAbility。它只负责汇流，不直接定义命中或连段状态源。 */
 	void FinishAttackAbility();
 
-	/** 真正执行攻击收尾：清理本次攻击的正式运行态、伤害上下文与连段最终决策。 */
+	/** 真正执行攻击收尾：清理本次攻击的正式运行态、伤害上下文与连段最终决策。进入这里说明本次攻击已经走到组件主链收尾阶段；它只收这次激活，不额外定义新的攻击状态机。 */
 	void FinalizeAttackAbility();
 
-	/** 读取这条攻击 GA 当前绑定的输入标签，仅用于调试和日志输出。 */
+	/** 读取这条攻击 GA 当前绑定的输入标签，仅用于调试和日志输出。它不是攻击分支解析结果本身。 */
 	FGameplayTag GetCurrentAttackInputTag() const;
 
-	/** 结合当前武器定义与请求标签，解析并执行一次完整攻击。这一步负责把“这次想按什么键出什么招”翻译成具体分支、蒙太奇、命中配置与连段推进方式。 */
+	/** 结合当前武器定义与请求标签，解析并执行一次完整攻击。这一步负责把“这次想按什么键出什么招”翻译成具体分支、蒙太奇、命中配置与连段推进方式；返回的是本次激活解析结果，不是长期攻击状态。 */
 	bool TryResolveAndExecuteAttack();
 
-	/** 执行一份已经解析完成的攻击配置。进入这里说明分支解析已经成功，后续只负责正式播放、写运行时状态并推进组件状态源。 */
+	/** 执行一份已经解析完成的攻击配置。进入这里说明分支解析已经成功，后续只负责正式播放、写运行时状态并推进组件状态源；它不把解析结果保存成长期状态源。 */
 	bool ExecuteResolvedAttack(const FActionResolvedAttackExecutionConfig& InResolvedConfig);
 
-	/** 冲刺攻击起手时，优先按当前移动输入方向修正角色朝向。 */
+	/** 冲刺攻击起手时，优先按当前移动输入方向修正角色朝向。它只是本次激活内的起手辅助，不形成新的朝向状态源。 */
 	bool TryApplySprintFacingFromMoveInput();
 
-	/** 供派生类写入自己的攻击请求标签。 */
+	/** 供派生类写入自己的攻击请求标签。它定义的是静态能力身份约束，不是当前攻击结果快照。 */
 	void SetAttackRequestTag(const FGameplayTag& InRequestTag);
 
-	/** 供派生类写入自己的专属 AbilityTag。 */
+	/** 供派生类写入自己的专属 AbilityTag。它主要服务关系系统、调试和运行时能力定位。 */
 	void SetSpecificAttackAbilityTag(const FGameplayTag& InAbilityTag);
 
-	/** 供派生类写入自己所属的固定武器槽。 */
+	/** 供派生类写入自己所属的固定武器槽。它只描述静态可激活边界，不表示当前一定已在该槽。 */
 	void SetExpectedLoadoutSlot(EHeroWeaponLoadoutSlot InExpectedLoadoutSlot);
 
-	/** 派生类构造时一次性写入请求标签、能力标签与目标武器槽。 */
+	/** 派生类构造时一次性写入请求标签、能力标签与目标武器槽，统一收口这条攻击壳的静态身份配置。 */
 	void InitializeAttackAbility(
 		const FGameplayTag& InRequestTag,
 		const FGameplayTag& InAbilityTag,
@@ -105,7 +105,7 @@ protected:
 	/** 当前 GA 绑定的专属 AbilityTag。主要用于调试、关系系统与运行时能力定位。 */
 	FGameplayTag SpecificAttackAbilityTag;
 
-	/** 当前 GA 只允许在哪个固定武器槽中被激活。Invalid 表示不额外限制。 */
+	/** 当前 GA 只允许在哪个固定武器槽中被激活。Invalid 表示不额外限制。它是静态能力约束，不是当前装备结果快照。 */
 	EHeroWeaponLoadoutSlot ExpectedLoadoutSlot = EHeroWeaponLoadoutSlot::Invalid;
 
 	/** 防止多个蒙太奇结束回调重复进入攻击收尾。它只描述“本次收尾是否已经执行过”。 */
@@ -118,10 +118,10 @@ protected:
 	 */
 	bool bShouldResetComboIndexOnFinalizeIfNotChained = false;
 
-	/** 标记本次是否已经真正开始播放攻击蒙太奇。它用来区分“只过渡了”与“正式出招了”。 */
+	/** 标记本次是否已经真正开始播放攻击蒙太奇。它用来区分“只过渡了”与“正式出招了”，不单独表达命中窗口是否已开启。 */
 	bool bAttackExecutionStarted = false;
 
-	/** 标记本次激活是否已经尝试过一次简单转向辅助，避免同次激活内重复纠正朝向。 */
+	/** 标记本次激活是否已经尝试过一次简单转向辅助，避免同次激活内重复纠正朝向。它只服务本次起手辅助。 */
 	bool bSimpleTurnAssistAttempted = false;
 
 	/**

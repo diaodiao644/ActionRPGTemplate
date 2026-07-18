@@ -29,7 +29,7 @@ public:
 	UHeroGA_Execution();
 
 public:
-	/** Ability 激活入口：重置本次局部时序状态，并把处决资格检查推进到正式预占与演出执行。 */
+	/** Ability 激活入口：重置本次局部时序状态，并把处决资格检查推进到正式预占与演出执行。它只启动执行者侧这次激活，不持有目标侧窗口本体。 */
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -53,14 +53,14 @@ protected:
 	virtual void OnHeroMontageCancelled(FName MontageContext) override;
 
 public:
-	UFUNCTION(BlueprintCallable, Category = "Action|Execution")
 	/** 供 AnimNotify 精确驱动的命中帧入口。只有真正进入处决态后，才允许从这里消费预占窗口。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|Execution", meta = (ToolTip = "供 AnimNotify_ExecutionHit 精确驱动的命中帧入口。它只消费本次已正式预占的处决窗口，不替代处决资格判断、目标预占或处决收尾主链。"))
 	void NotifyExecutionHitFrame();
 
 private:
 	/** 正式消费本次已预占的处决窗口，并对本次锁定的目标结算一次处决命中。 */
 	bool TryApplyExecutionHit();
-	/** 正式发起目标侧处决前准备链。成功后不代表已经开始播放处决演出。 */
+	/** 正式发起目标侧处决前准备链。成功后不代表已经开始播放处决演出，也不等于目标侧 victim runtime 已最终完成。 */
 	bool TryBeginExecutionPreparation();
 	/** 轮询目标侧处决前准备的统一入口；准备完成后再正式启动双边处决演出。 */
 	void HandleDeferredExecutionPreparation();
@@ -76,7 +76,7 @@ private:
 	void SetExecutionPerformerInputLock(bool bLocked);
 	/** 请求在下一帧继续检查目标侧处决前准备是否已经完成。 */
 	void RequestContinueExecutionPreparationNextTick();
-	/** 真正执行处决收尾：关闭执行者侧保护，并按命中结果决定是否回退预占或走目标侧 abort。 */
+	/** 真正执行处决收尾：关闭执行者侧保护，并按命中结果决定是否回退预占或走目标侧 abort。它只收执行者侧激活壳，不替代目标侧正式窗口收尾。 */
 	void FinalizeExecutionState(bool bWasCancelled);
 	/** 开关执行者自身的处决保护效果；它只服务执行者侧，不代表目标侧锁定状态。 */
 	void SetExecutionInvulnerabilityEnabled(bool bEnabled);
@@ -98,24 +98,24 @@ private:
 	bool bExecutionHitApplied = false;
 	/** 只表示这次处决是否已真正进入正式双边演出阶段。 */
 	bool bExecutionStarted = false;
-	/** 只表示当前是否仍在等待目标完成处决前转向准备。 */
+	/** 只表示当前是否仍在等待目标完成处决前转向准备。它是本次激活局部轮询标记，不是目标侧正式窗口状态。 */
 	bool bExecutionPreparationPending = false;
 	/** 只表示本次正式收尾是否已经执行过，避免多路径重入。 */
 	bool bAbilityFinished = false;
-	/** 当前这次准备阶段开始的世界时间。 */
+	/** 当前这次准备阶段开始的世界时间。它只服务本次激活里的超时兜底。 */
 	float ExecutionPreparationStartWorldTime = -1.f;
-	/** 当前这次准备阶段已轮询次数。 */
+	/** 当前这次准备阶段已轮询次数。它只服务调试和兜底，不构成新的准备状态源。 */
 	int32 ExecutionPreparationPollCount = 0;
-	/** 当前这次准备阶段最近一次已输出的阶段文本。 */
+	/** 当前这次准备阶段最近一次已输出的阶段文本。它只服务日志与屏幕提示，不反向推进正式处决状态。 */
 	FString LastExecutionPreparationStageText;
 
 protected:
 	/** 处决期间附加在执行者自身的临时战斗修正效果。它是资产侧可配置内容，不代表目标侧锁定来源。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ToolTip = "处决期间附加在执行者自身的临时战斗修正效果。它是资产侧可配置内容，不代表目标侧锁定来源；留空时处决主链仍可运行。"))
 	FActionCombatModifierEffectSpec ExecutionInvulnerabilityCombatModifierEffect;
 
 	/** 处决前准备阶段的正式超时秒数。它独立于目标转向时长，只用于避免准备链无限挂住。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Execution", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "处决前准备阶段的正式超时秒数。它独立于目标转向时长，只用于避免准备链无限挂住；设为 0 表示本轮不额外等待。"))
 	float ExecutionPreparationTimeoutSeconds = 5.f;
 
 private:

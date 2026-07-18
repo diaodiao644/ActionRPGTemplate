@@ -24,19 +24,6 @@ UHeroGA_Attack::UHeroGA_Attack()
 	// 具体请求标签、能力标签和固定武器槽，由各个独立派生类在构造函数里写入。
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_Attack);
 	ActivationOwnedTags.AddTag(ActionGameplayTags::State_Ability_Attack_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Defense_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Dodge_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_Execution_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_SpiritSkill_Active);
-	ActivationBlockedTags.AddTag(ActionGameplayTags::State_Ability_WeaponSwitch_Active);
-
-	// 攻击属于基础战斗行为：默认不主动打断别人，但会被更高优先级行为压住。
-	// 当前基线优先级下调到 18，让 SpiritSkill 在同属主动链时具备更明确的压制权。
-	AbilityPriority = 18;
-	bCanInterruptLowerPriorityAbilities = false;
-	bCanInterruptSamePriorityAbilities = false;
-	bCanBeInterruptedByHigherPriority = true;
-	bCanBeInterruptedBySamePriority = false;
 	CombatReactAbilityRule.bAllowActivationDuringRecoveryCancelWindow = true;
 }
 

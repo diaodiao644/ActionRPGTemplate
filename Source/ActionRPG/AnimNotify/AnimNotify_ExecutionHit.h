@@ -8,10 +8,8 @@
 
 /**
  * 处决命中帧通知。
- * 使用方式：
- * 1. 把它放到处决蒙太奇真正应当命中的那一帧；
- * 2. Notify 触发时会查找当前角色身上正在激活的处决 Ability；
- * 3. 找到后调用 Ability 的命中帧入口，让处决伤害在精确帧落地。
+ * 它只负责在精确帧把“现在该命中了”这件事桥接给当前激活的 `HeroGA_Execution`，
+ * 不负责处决资格判断、victim lock 状态维护或命中结果缓存。
  */
 UCLASS()
 class ACTIONRPG_API UAnimNotify_ExecutionHit : public UAnimNotify
@@ -22,8 +20,10 @@ public:
 	UAnimNotify_ExecutionHit();
 
 public:
+	/** 返回编辑器内显示名，方便资产作者直接看出这是处决命中帧桥接通知。 */
 	virtual FString GetNotifyName_Implementation() const override;
 
+	/** 在精确帧查找当前激活的 `HeroGA_Execution`，并把正式处决命中桥接给它。它只负责单帧通知，不重建伤害载荷或第二套处决状态。 */
 	virtual void Notify(
 		USkeletalMeshComponent* MeshComp,
 		UAnimSequenceBase* Animation,

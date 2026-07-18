@@ -1,6 +1,7 @@
 ﻿#include "DataAssets/Weapons/DataAsset_WeaponDefinition.h"
 
 #include "ActionGameplayTags.h"
+#include "AbilitySystem/ActionAbilityCategoryValidation.h"
 #include "AbilitySystem/Abilities/Hero/HeroGA_SpiritSkill.h"
 #include "AnimNotify/AnimNotify_CombatWeaponPresentationSwitch.h"
 #include "AnimInstance/Hero/ActionHeroLinkedAnimLayer.h"
@@ -117,6 +118,38 @@ namespace ActionWeaponDefinitionDefaults
 		}
 
 		return FString::Printf(TEXT("%d"), static_cast<int32>(InDamageType));
+	}
+
+	static void ValidateHeroCombatAbilityCategory(
+		const TSubclassOf<UGameplayAbility>& InAbilityClass,
+		const FString& InContextText,
+		TArray<FString>& OutLines)
+	{
+		if (!InAbilityClass)
+		{
+			return;
+		}
+
+		const FActionHeroCombatAbilityCategoryValidationResult ValidationResult =
+			BuildActionHeroCombatAbilityCategoryValidationResult(InAbilityClass);
+		if (!ValidationResult.bIsHeroCombatRelationshipAbility || ValidationResult.bPassed)
+		{
+			return;
+		}
+
+		OutLines.Add(FString::Printf(
+			TEXT("[错误] %s 引用的 Hero 主动战斗 GA 类别配置非法。Ability=%s Identity=%s MatchedTopLevelIdentity=%s AdditionalPlayerAbilityTags=%s Category=%s HasBlueprintCanActivateOverride=%s CategoryAudit=%s Reason=%s"),
+			*InContextText,
+			*GetNameSafe(InAbilityClass),
+			*DescribeActionAbilityValidationGameplayTags(ValidationResult.IdentityTags),
+			*DescribeActionAbilityValidationGameplayTags(
+				ValidationResult.CategoryAuditResult.MatchedTopLevelIdentityTags),
+			*DescribeActionAbilityValidationGameplayTags(
+				ValidationResult.CategoryAuditResult.AdditionalPlayerAbilityTags),
+			*ActionAbilityCategoryToString(ValidationResult.AbilityCategory),
+			ValidationResult.bHasBlueprintCanActivateOverride ? TEXT("Yes") : TEXT("No"),
+			*ValidationResult.AuditState,
+			ValidationResult.FailureReason.IsEmpty() ? TEXT("Unknown") : *ValidationResult.FailureReason));
 	}
 
 	static EActionDamageType ResolveExpectedDamageTypeByWeaponPropertyType(const EActionWeaponPropertyType InWeaponPropertyType)
@@ -426,7 +459,6 @@ namespace ActionWeaponDefinitionDefaults
 		InOutAnimationConfig.MovingDodgeMontage.Reset();
 		InOutAnimationConfig.DefenseMontage.Reset();
 		InOutAnimationConfig.BlockedHitMontage.Reset();
-		InOutAnimationConfig.NormalWeaponSwitchClip = FActionWeaponSwitchClipConfig();
 		InOutAnimationConfig.SpecialWeaponSwitchClip = FActionWeaponSwitchClipConfig();
 	}
 
@@ -614,12 +646,6 @@ namespace ActionWeaponDefinitionDefaults
 		if (InAnimationConfig.BlockedHitMontage.IsNull())
 		{
 			AppendValidationLine(OutLines, TEXT("[提示] BlockedHitMontage 尚未配置。普通格挡成功后将缺少独立格挡受击表现。"));
-		}
-
-		if (!InAnimationConfig.NormalWeaponSwitchClip.IsValidConfig()
-			&& InWeaponCategory != EHeroWeaponCategory::Unarmed)
-		{
-			AppendValidationLine(OutLines, TEXT("[提示] NormalWeaponSwitchClip 尚未配置有效蒙太奇。普通切武将回退为无独立演出。"));
 		}
 
 		if (!InAnimationConfig.SpecialWeaponSwitchClip.IsValidConfig()
@@ -1673,21 +1699,6 @@ UAnimMontage* UDataAsset_WeaponDefinition::GetBlockedHitAnimMontage() const
 	return AnimationConfig.GetBlockedHitMontage();
 }
 
-UAnimMontage* UDataAsset_WeaponDefinition::GetNormalWeaponSwitchMontage() const
-{
-	return AnimationConfig.GetNormalWeaponSwitchMontage();
-}
-
-int32 UDataAsset_WeaponDefinition::GetNormalWeaponSwitchReactGuardThreshold() const
-{
-	return AnimationConfig.GetNormalWeaponSwitchReactGuardThreshold();
-}
-
-const FActionWeaponHitConfig& UDataAsset_WeaponDefinition::GetNormalWeaponSwitchHitConfig() const
-{
-	return AnimationConfig.GetNormalWeaponSwitchHitConfig();
-}
-
 UAnimMontage* UDataAsset_WeaponDefinition::GetExecutionMontage() const
 {
 	return ExecutionConfig.GetExecutionMontage();
@@ -1904,6 +1915,11 @@ FString UDataAsset_WeaponDefinition::BuildEditorValidationReport() const
 						*EntryFailureReason));
 				}
 
+				ActionWeaponDefinitionDefaults::ValidateHeroCombatAbilityCategory(
+					SpiritAbilityEntry.AbilityToGrant,
+					FString::Printf(TEXT("%s（EntryKind=%s）.AbilityToGrant"), *EntryContext, *EntryKindName),
+					ValidationLines);
+
 				if (SpiritAbilityEntry.IsOffensiveSpiritSkill())
 				{
 					for (int32 ClipIndex = 0; ClipIndex < SpiritAbilityEntry.SpiritSkillConfig.SkillClips.Num(); ++ClipIndex)
@@ -2011,11 +2027,6 @@ FString UDataAsset_WeaponDefinition::BuildEditorValidationReport() const
 	ActionWeaponDefinitionDefaults::ValidateExecutionHitConfig(
 		ExecutionConfig.HitConfig,
 		TEXT("处决专用 HitConfig"),
-		ValidationLines);
-	ActionWeaponDefinitionDefaults::ValidateHitConfigEffects(
-		AnimationConfig.NormalWeaponSwitchClip.HitConfig,
-		AllowsAdditionalHitEffects(),
-		TEXT("NormalWeaponSwitchClip.HitConfig"),
 		ValidationLines);
 	ActionWeaponDefinitionDefaults::ValidateHitConfigEffects(
 		AnimationConfig.SpecialWeaponSwitchClip.HitConfig,

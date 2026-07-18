@@ -26,7 +26,7 @@ public:
 	UHeroGA_CombatModeOrDefense();
 
 public:
-	/** Ability 激活入口：重置本次局部时序状态，并按当前 CombatMode 分流姿态切换或防御起手。 */
+	/** Ability 激活入口：重置本次局部时序状态，并按当前 CombatMode 分流姿态切换或防御起手。它不在这里创建长期防御状态源。 */
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -44,8 +44,8 @@ protected:
 	/** 在关系系统真正放行前，先校验非攻击输入门禁与当前语义所需资源。这里只做补充预检，不写正式运行态。 */
 	virtual bool ValidateRelationshipActivationPreconditions(FString& OutFailureReason) override;
 
+	/** 输入释放主入口：它只消费本次 `WaitInputRelease` 已绑定的 `OnRelease` 回调；只有松手才算正常退出防御，不把蒙太奇自然结束当作正式退出信号。 */
 	UFUNCTION()
-	/** 输入释放主入口：只有松手才算正常退出防御，不把蒙太奇自然结束当作正式退出信号。 */
 	void HandleDefenseInputReleased(float HeldTime);
 
 	/** 启动防御释放的兜底轮询。它只兜“释放事件漏掉”的极端时序，不是第二套正式输入源。 */
@@ -57,14 +57,14 @@ protected:
 	/** 从正式输入组件读取当前防御输入是否仍然按住，仅供释放兜底轮询使用。 */
 	bool IsDefenseInputStillHeld() const;
 
-	/** 只有已处于 Combo 时，才把这次输入解释成正式防御并启动后续状态型流程。 */
+	/** 只有已处于 Combo 时，才把这次输入解释成正式防御并启动后续状态型流程；这里会创建并绑定 `WaitInputRelease`，但不会在 GA 本地维护第二套正式输入状态。 */
 	void DefenseLogic();
 	/** “准备退出防御”的统一入口：先做正式收尾，再决定是否立刻结束 Ability 对象。 */
 	void FinishDefenseAbility(bool bShouldEndAbility);
-	/** 真正执行防御收尾：清理防御运行态、停止释放兜底并把最终状态交还组件侧。 */
+	/** 真正执行防御收尾：清理防御运行态、停止释放兜底并把最终状态交还组件侧。它只收这次激活，不替代组件侧长期门禁与窗口收尾。 */
 	void FinalizeDefenseAbility();
 
-	/** 共享蒙太奇回调：防御没有攻击那种双层过渡语义，各回调只负责汇入防御退出链或维持持续态。 */
+	/** 共享蒙太奇回调：防御没有攻击那种双层过渡语义，各回调只负责汇入防御退出链或维持持续态，不单独定义新的防御阶段机。 */
 	virtual void OnHeroMontageCompleted(FName MontageContext) override;
 	virtual void OnHeroMontageBlendOut(FName MontageContext) override;
 	virtual void OnHeroMontageInterrupted(FName MontageContext) override;
@@ -81,7 +81,7 @@ private:
 	bool bDefenseReleaseWatchActive = false;
 
 protected:
-	/** 防御期间附加的临时战斗修正效果。它是资产侧可配置内容，不是运行时自动推导状态。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defense")
+	/** 防御期间附加的临时战斗修正效果。它是资产侧可配置内容，不是运行时自动推导状态，也不是正式防御态来源。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defense", meta = (ToolTip = "防御期间附加的临时战斗修正效果。它是资产侧可配置内容，不是运行时自动推导状态，也不是正式防御态来源；留空时防御仍可工作，只是不额外挂额外修正。"))
 	FActionCombatModifierEffectSpec DefenseCombatModifierEffect;
 };

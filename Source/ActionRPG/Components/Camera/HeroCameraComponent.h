@@ -75,10 +75,11 @@ enum class EHeroCameraMode : uint8
 
 /**
  * 英雄角色相机逻辑组件。
- * 设计目标：
+ * 这一层是镜头模式消费桥：
  * 1. Character 中继续保留 SpringArm 和 CameraComponent 实体；
- * 2. 所有镜头模式判断、参数切换、平滑过渡都集中到这里；
- * 3. 为后续锁定目标、处决演出镜头、远程瞄准镜头继续扩展留出稳定入口。
+ * 2. 这里统一消费 Combat / Targeting 正式状态，解析当前应使用的镜头模式；
+ * 3. 这里只驱动镜头参数与平滑过渡，不单独持有 Combat / TargetLock 的正式状态源。
+ * 它是镜头模式消费桥，不是 Combat、TargetLock、Defense、Dodge 或 SpecialWeaponSwitch 的正式状态源。
  */
 UCLASS(ClassGroup = (Action), meta = (BlueprintSpawnableComponent))
 class ACTIONRPG_API UHeroCameraComponent : public UActorComponent
@@ -93,72 +94,73 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	/** 每帧根据当前战斗状态更新镜头模式与镜头参数。 */
+	/** 每帧根据当前正式状态更新镜头模式与镜头参数。它只消费外部正式状态，不自行决定业务资格。 */
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 public:
 	/**
 	 * 初始化相机实体引用。
 	 * 角色在构造时创建相机实体，但真正的逻辑控制统一交给这个组件。
+	 * 它只是镜头桥接入口，不承担角色启动链或 HUD 初始化职责。
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Camera")
 	void InitializeCameraRig(USpringArmComponent* InCameraBoom, UCameraComponent* InFollowCamera);
 
-	/** 读取当前解析出的镜头模式。 */
+	/** 读取当前解析出的正式镜头模式。它是只读运行态结果，不会推动镜头继续切换。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Camera")
 	EHeroCameraMode GetCurrentCameraMode() const { return CurrentCameraMode; }
 
-	/** 立刻按当前状态刷新一次镜头，不走平滑插值。 */
+	/** 立刻按当前状态刷新一次镜头，不走平滑插值。它只刷新表现结果，不推进战斗状态。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Camera")
 	void ForceRefreshCameraMode();
 
 protected:
-	/** 缓存相机依赖组件，避免每帧重复 Cast 和查找。 */
+	/** 缓存相机依赖组件，避免每帧重复 Cast 和查找。它只做宿主解析，不推进任何战斗语义。 */
 	void CacheOwnerDependencies();
 
-	/** 检查相机实体引用是否已经准备完毕。 */
+	/** 检查相机实体引用是否已经准备完毕。它只是运行保护，不代表角色其它系统已经正式就绪。 */
 	bool HasValidCameraRig() const;
 
-	/** 根据当前战斗状态解析目标镜头模式。 */
+	/** 根据当前正式战斗 / 锁定状态解析目标镜头模式，不自行创建第二套持续状态。 */
 	EHeroCameraMode ResolveDesiredCameraMode() const;
 
-	/** 按模式读取对应的参数配置。*/
+	/** 按模式读取对应的静态参数配置。它是配置入口，不是当前镜头状态快照。 */
 	const FHeroCameraModeConfig& GetCameraModeConfig(EHeroCameraMode InCameraMode) const;
 
-	/** 将某个模式的参数即时应用到相机实体上。*/
+	/** 将某个模式的参数即时应用到相机实体上。它只处理相机表现层参数。 */
 	void ApplyCameraModeConfigImmediately(const FHeroCameraModeConfig& InConfig);
 
-	/** 将某个模式的参数平滑推进到相机实体上。*/
+	/** 将某个模式的参数平滑推进到相机实体上。它同样只处理表现层插值。 */
 	void BlendToCameraModeConfig(const FHeroCameraModeConfig& InConfig, float DeltaTime);
 
 protected:
-	/** 非战斗探索状态下的镜头配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes")
+	/** 非战斗探索状态下的镜头静态模板。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes", meta = (ToolTip = "非战斗探索状态的镜头静态模板。它只描述 Exploration 模式该长什么样，不代表运行时当前一定处于探索态。"))
 	FHeroCameraModeConfig ExplorationCameraConfig;
 
-	/** 普通战斗状态下的镜头配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes")
+	/** 普通战斗状态下的镜头静态模板。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes", meta = (ToolTip = "普通战斗状态的镜头静态模板。HeroCameraComponent 只会在解析到 Combat 模式时消费它。"))
 	FHeroCameraModeConfig CombatCameraConfig;
 
-	/** 正式锁定目标状态下的镜头配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes")
+	/** 正式锁定目标状态下的镜头静态模板。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes", meta = (ToolTip = "正式 TargetLock 状态的镜头静态模板。锁定资格和当前锁定目标仍回到 HeroTargetingComponent。"))
 	FHeroCameraModeConfig TargetLockCameraConfig;
 
-	/** 防御状态下的镜头配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes")
+	/** 防御状态下的镜头静态模板。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes", meta = (ToolTip = "防御状态的镜头静态模板。它只服务镜头表现，不替代防御窗口或防御资格状态源。"))
 	FHeroCameraModeConfig DefenseCameraConfig;
 
-	/** 闪避状态下的镜头配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes")
+	/** 闪避状态下的镜头静态模板。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes", meta = (ToolTip = "闪避状态的镜头静态模板。它只在当前正式闪避运行态成立时被消费。"))
 	FHeroCameraModeConfig DodgeCameraConfig;
 
-	/** 特殊切武表现期的镜头配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes")
+	/** 特殊切武表现期的镜头静态模板。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera|Modes", meta = (ToolTip = "特殊切武表现期的镜头静态模板。它只服务表现层，不替代切武事务或当前装备结果。"))
 	FHeroCameraModeConfig SpecialWeaponSwitchCameraConfig;
 
 private:
-	/** 当前生效中的镜头模式。 */
-	UPROPERTY(VisibleAnywhere, Category = "Camera|Runtime")
+	/** 当前生效中的镜头模式。它是 HeroCameraComponent 的解析结果，不是 Combat、TargetLock 或 Defense 的正式状态源。 */
+	UPROPERTY(VisibleAnywhere, Category = "Camera|Runtime", meta = (ToolTip = "当前相机解析出的镜头模式结果。它只是 HeroCameraComponent 的只读运行态结果，不会反向替代 Combat 或 TargetLock 的正式状态。"))
 	EHeroCameraMode CurrentCameraMode = EHeroCameraMode::Exploration;
 
 	/** 角色上真实承载镜头的相机臂。 */
@@ -169,7 +171,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UCameraComponent> FollowCamera = nullptr;
 
-	/** 依赖组件缓存。 */
+	/** 依赖组件缓存。它们只服务镜头消费链与调试，不额外保存第二套角色、战斗或锁定状态。 */
 	TWeakObjectPtr<AActionHeroCharacter> CachedHeroCharacter;
 	TWeakObjectPtr<AActionPlayerController> CachedHeroController;
 	TWeakObjectPtr<UHeroCombatComponent> CachedHeroCombatComponent;

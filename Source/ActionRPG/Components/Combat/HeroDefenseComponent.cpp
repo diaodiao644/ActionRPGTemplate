@@ -85,22 +85,39 @@ bool UHeroDefenseComponent::CanActivateNonAttackInputNow(const FGameplayTag& Inp
 	}
 
 	if (WeaponSwitchComponent
-		&& WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
-		&& !CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(InputTag))
+		&& WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
+		&& !CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
 	{
-		// 切武表现期默认阻断非攻击主动输入，只有现有 AbilityCancelWindow 明确放行时才允许抢入。
+		// 切武表现期默认阻断非攻击主动输入，只有现有主动 GA 抢断窗明确放行时才允许抢入。
 		return false;
 	}
 
-	if (CombatComponent->IsAbilityCancelContextActive())
+	if (CombatComponent->IsInputOverrideContextActive())
 	{
-		// 如果当前动作已经进入取消上下文，则是否允许防御或闪避，
-		// 要由当前取消窗口白名单来决定，而不是无条件放行。
-		return CombatComponent->IsAbilityCancelInputAllowedNow(InputTag);
+		// 如果当前动作已经进入输入改写上下文，则是否允许防御或闪避，
+		// 要由当前抢断窗或恢复窗白名单来决定，而不是无条件放行。
+		return CombatComponent->IsInputAllowedByCurrentOverrideContext(InputTag);
 	}
 
 	// 普通情况下，非攻击输入是否允许激活，统一跟随战斗总控当前是否开放主动输入。
 	return CombatComponent->IsAttackEnabled();
+}
+
+bool UHeroDefenseComponent::CanEnterRelationshipActivationForNonAttackInput(
+	const FGameplayTag& InputTag,
+	FString* OutFailureReason) const
+{
+	const UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent();
+	if (!CombatComponent)
+	{
+		if (OutFailureReason)
+		{
+			*OutFailureReason = TEXT("hero combat component is invalid");
+		}
+		return false;
+	}
+
+	return CombatComponent->PassesSharedNonAttackAbilityHardGate(InputTag, OutFailureReason);
 }
 
 UAnimMontage* UHeroDefenseComponent::GetDodgeAnimMontage() const
@@ -194,8 +211,7 @@ void UHeroDefenseComponent::ApplyDefenseAbilityStarted(UAnimMontage* DefenseMont
 		DefenseMontage,
 		EActionRunningAnimationSemantic::NonReact,
 		GetDefenseReactGuardThreshold());
-	CombatComponent->CloseAbilityChainWindow();
-	CombatComponent->CloseAbilityCancelWindow();
+	CombatComponent->ClearAbilityWindowsForAuthoritativeTakeover();
 	ActiveDefenseMontage = DefenseMontage;
 	ClearDefenseReleaseRequirement();
 	BeginDefenseState();
@@ -227,7 +243,6 @@ void UHeroDefenseComponent::FinalizeDefenseAbilityRuntime(const bool bCombatReac
 	CombatComponent->ClearRunningAnimMontageReferenceIfMatches(ActiveDefenseMontage);
 	ActiveDefenseMontage = nullptr;
 	EndDefenseState();
-	CombatComponent->CloseAbilityCancelWindow();
 	RestoreWalkingMovementIfLocked();
 }
 
@@ -246,8 +261,7 @@ void UHeroDefenseComponent::ApplyDodgeAbilityStarted(UAnimMontage* DodgeMontage)
 		DodgeMontage,
 		EActionRunningAnimationSemantic::NonReact,
 		GetDodgeReactGuardThreshold());
-	CombatComponent->CloseAbilityChainWindow();
-	CombatComponent->CloseAbilityCancelWindow();
+	CombatComponent->ClearAbilityWindowsForAuthoritativeTakeover();
 	ActiveDodgeMontage = DodgeMontage;
 	BeginDodgeState();
 }
@@ -268,7 +282,6 @@ void UHeroDefenseComponent::FinalizeDodgeAbilityRuntime(const bool bCombatReactR
 	CombatComponent->ClearRunningAnimMontageReferenceIfMatches(ActiveDodgeMontage);
 	ActiveDodgeMontage = nullptr;
 	EndDodgeState();
-	CombatComponent->CloseAbilityCancelWindow();
 }
 
 void UHeroDefenseComponent::RequireDefenseReleaseBeforeReactivation()
@@ -410,7 +423,7 @@ void UHeroDefenseComponent::HandleCombatReactStateReset()
 		// 否则后续受击恢复结束后，角色可能仍残留在 Defense 模式或攻击被关闭的坏状态里。
 		CombatComponent->SetAttackEnabled(true);
 		CombatComponent->SetCombatMode(EHeroCombatMode::Combo);
-		CombatComponent->CloseAbilityCancelWindow();
+		CombatComponent->ClearAbilityInterruptWindowForCombatReactHardReset();
 		CombatComponent->ClearRunningAnimationReactGuardContextIfMatches(
 			ActiveDefenseMontage,
 			EActionRunningAnimationSemantic::NonReact);
@@ -422,10 +435,10 @@ void UHeroDefenseComponent::HandleCombatReactStateReset()
 
 	if (bWasDodgeStateActive)
 	{
-		// 闪避被受击重置打断时，同样要主动恢复攻击开关与取消窗口。
+		// 闪避被受击重置打断时，同样要主动恢复攻击开关与主动 GA 抢断窗口。
 		// 闪避本身不改 CombatMode，因此这里只回收它接管过的公共输入状态。
 		CombatComponent->SetAttackEnabled(true);
-		CombatComponent->CloseAbilityCancelWindow();
+		CombatComponent->ClearAbilityInterruptWindowForCombatReactHardReset();
 		CombatComponent->ClearRunningAnimationReactGuardContextIfMatches(
 			ActiveDodgeMontage,
 			EActionRunningAnimationSemantic::NonReact);
@@ -931,17 +944,16 @@ bool UHeroDefenseComponent::HandleDodgeInput(
 		return true;
 	}
 
-	if (!CanActivateNonAttackInputNow(InputTag))
+	if (!CanEnterRelationshipActivationForNonAttackInput(InputTag))
 	{
 		return false;
 	}
 
 	// 闪避本质上是一次性动作，因此真正向 ASC 提交时统一走 Pressed 入口。
-	if (CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(InputTag))
+	if (CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
 	{
-		// 切武表现期通过取消窗口切到闪避时，要先收掉旧的 WeaponSwitch Ability，
-		// 避免切武表现壳继续持有移动锁和活跃标签。
-		InActionASC->CancelAbilityByAbilityTag(ActionGameplayTags::Player_Ability_WeaponSwitch);
+		// 切武表现期里允许通过主动 GA 抢断窗口切到闪避，
+		// 旧 Ability 的正式取消统一交给 ASC 关系裁决入口处理。
 	}
 
 	const bool bDodgeTriggered = InActionASC->OnAbilityInputPressed(
@@ -973,7 +985,7 @@ bool UHeroDefenseComponent::HandleCombatModeOrDefensePressed(
 		return false;
 	}
 
-	if (!CanActivateNonAttackInputNow(InputTag))
+	if (!CanEnterRelationshipActivationForNonAttackInput(InputTag))
 	{
 		return false;
 	}
@@ -982,9 +994,9 @@ bool UHeroDefenseComponent::HandleCombatModeOrDefensePressed(
 	// 这样角色在第一次按下时就能立刻尝试进入防御，而不是必须等到下一帧 Held。
 	// 防御不是一次性动作，而是“按住维持”的状态能力。
 	// 所以即使是 Pressed 首帧，也直接按 Held 语义交给 ASC。
-	if (CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(InputTag))
+	if (CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
 	{
-		InActionASC->CancelAbilityByAbilityTag(ActionGameplayTags::Player_Ability_WeaponSwitch);
+		// 主动 GA 抢断统一由 ASC 关系裁决入口执行，这里不再业务层手工先取消切武 Ability。
 	}
 
 	return InActionASC->OnAbilityInputHeld(CombatComponent->ResolveLoadoutScopedCombatInputTag(InputTag));
@@ -1006,7 +1018,7 @@ bool UHeroDefenseComponent::HandleCombatModeOrDefenseHeld(
 		return false;
 	}
 
-	if (!CanActivateNonAttackInputNow(InputTag))
+	if (!CanEnterRelationshipActivationForNonAttackInput(InputTag))
 	{
 		return false;
 	}
@@ -1014,9 +1026,9 @@ bool UHeroDefenseComponent::HandleCombatModeOrDefenseHeld(
 	// 防御是真正依赖“持续按住”的状态输入，因此 Held 阶段既要记录按住状态，
 	// 也要持续把这次 Held 语义转发给 ASC，保证恢复链回放时仍能按同一语义重新接回防御。
 	CombatInputComponent->MarkInputAsHeldByTag(InputTag);
-	if (CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(InputTag))
+	if (CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag))
 	{
-		InActionASC->CancelAbilityByAbilityTag(ActionGameplayTags::Player_Ability_WeaponSwitch);
+		// 主动 GA 抢断统一由 ASC 关系裁决入口执行，这里不再业务层手工先取消切武 Ability。
 	}
 
 	return InActionASC->OnAbilityInputHeld(CombatComponent->ResolveLoadoutScopedCombatInputTag(InputTag));

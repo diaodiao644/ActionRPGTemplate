@@ -9,6 +9,12 @@
 
 #include "ActionEnhancedInputComponent.generated.h"
 
+/**
+ * Enhanced Input 到正式输入标签的批量绑定桥。
+ * 它只负责读取静态输入配置资产，并把 InputAction + InputTag
+ * 批量绑定到 Pressed / Released / Held 回调；
+ * 不持有正式战斗输入状态，也不替代 HeroCombatInputComponent 的输入运行态。
+ */
 UCLASS()
 class ACTIONRPG_API UActionEnhancedInputComponent : public UEnhancedInputComponent
 {
@@ -17,7 +23,11 @@ class ACTIONRPG_API UActionEnhancedInputComponent : public UEnhancedInputCompone
 public:
 	UActionEnhancedInputComponent();
 
-	//将传入的函数与输入配置中的IA绑定
+	/**
+	 * 把输入配置里的静态映射批量绑定到回调函数。
+	 * 它只是绑定桥，不推进输入资格判断、缓冲写入或关系裁决。
+	 * 运行时透传的 `InputTag` 只是正式语义入口；后续是否消费仍回到外层正式链。
+	 */
 	template<class UserClass, typename PressedFuncType, typename ReleasedFuncType, typename HeldFuncType>
 	void BindAbilityActions(const UDataAsset_InputConfig* InputConfig, UserClass* Object, PressedFuncType PressedFunc, ReleasedFuncType ReleasedFunc, HeldFuncType HeldFunc);
 	
@@ -34,11 +44,14 @@ inline void UActionEnhancedInputComponent::BindAbilityActions(const UDataAsset_I
 
 	for (const FActionInputBinding& InputBinding : InputConfig->AbilityInputBindings)
 	{
-		if (!IsValid(InputBinding.InputAction) || !InputBinding.InputTag.IsValid())continue;
+		if (!IsValid(InputBinding.InputAction) || !InputBinding.InputTag.IsValid())
+		{
+			continue;
+		}
 
 		if (PressedFunc)
 		{
-			//最后的可变参数将在 触发回调时 传入 回调函数  AB->Delegate.BindDelegate<UserClass>(Object, Func, Vars...);
+			// 运行时只把静态 InputTag 透传给回调；后续是否消费、缓存或进入 GAS 仍由外层正式链决定。
 			BindAction(InputBinding.InputAction, ETriggerEvent::Started, Object, std::forward<PressedFuncType>(PressedFunc), InputBinding.InputTag);
 		}
 
@@ -51,7 +64,5 @@ inline void UActionEnhancedInputComponent::BindAbilityActions(const UDataAsset_I
 		{
 			BindAction(InputBinding.InputAction, ETriggerEvent::Triggered, Object, std::forward<HeldFuncType>(HeldFunc), InputBinding.InputTag);
 		}
-
 	}
-
 }

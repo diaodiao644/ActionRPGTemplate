@@ -51,7 +51,7 @@ struct FActionLevelScaledFloat
 
 public:
 	/** 每一级对应的显式数值，LevelValues[0] 表示 1 级。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LevelScaled")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "LevelScaled", meta = (ToolTip = "每一级对应的显式数值，数组第 0 项表示 1 级。读取时会自动把输入等级钳制到有效范围；留空时该等级驱动配置视为未生效。"))
 	TArray<float> LevelValues;
 
 	/** 判断当前是否至少配置了一档等级值。 */
@@ -141,11 +141,11 @@ struct FActionAttributeDrivenValueConfig
 
 public:
 	/** 当前这条值从哪类正式属性读取。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Damage")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Damage", meta = (ToolTip = "这条数值从攻击力、防御力或最大生命值中的哪一类正式属性读取。它只决定取值来源，不负责等级倍率或最终乘区。"))
 	EActionAttributeSourceType AttributeSourceType = EActionAttributeSourceType::AttackPower;
 
 	/** 当前等级对应的属性倍率。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Damage")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Damage", meta = (ToolTip = "每个能力等级对应的属性倍率。最终结果固定按“来源属性值 × 当前等级倍率”解析；数组第 0 项表示 1 级，留空时这条伤害/消耗配置不会产出有效值。"))
 	FActionLevelScaledFloat LevelScaledMultiplier;
 
 	/** 判断当前是否至少配置了任意一条等级驱动信息。 */
@@ -185,11 +185,11 @@ public:
 	bool bActive = false;
 
 	/** 当前正式结算等级，默认至少为 1。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Damage")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Damage", meta = (ToolTip = "当前正式结算等级，默认至少为 1。命中、发射物和共享伤害链会统一读取它，而不是各自再猜当前 GA 等级。"))
 	int32 AbilityLevel = 1;
 
 	/** 当前伤害上下文来自哪条正式能力。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Damage")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Damage", meta = (ToolTip = "当前伤害上下文来自哪条正式能力标签。它只服务共享结算读链和调试，不替代具体 Ability 实例。"))
 	FGameplayTag SourceAbilityTag;
 
 	/** 判断当前是否存在可供共享主链读取的正式上下文。 */

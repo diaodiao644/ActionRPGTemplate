@@ -606,6 +606,7 @@ bool UHeroExecutionCoordinatorComponent::TryCommitExecutionAbilityInput(UActionA
 		return false;
 	}
 
+	CombatInputComponent->ClearBufferedInputIfMatchesTag(ActionGameplayTags::InputTag_GameplayAbility_Execution);
 	// 只有 ASC 明确接受了这次处决输入，才把这次输入记为已消费。
 	CombatInputComponent->MarkInputConsumedByTag(ActionGameplayTags::InputTag_GameplayAbility_Execution);
 	return true;
@@ -779,8 +780,8 @@ bool UHeroExecutionCoordinatorComponent::IsExecutionAbilityBlockedByCombatState(
 	if (const UHeroWeaponSwitchComponent* WeaponSwitchComponent = CombatComponent->GetOwningHeroWeaponSwitchComponent())
 	{
 		if (WeaponSwitchComponent->IsWeaponSwitchTransactionInProgress()
-			|| (WeaponSwitchComponent->IsWeaponSwitchPresentationActive()
-				&& !CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(
+			|| (WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive()
+				&& !CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(
 					ActionGameplayTags::InputTag_GameplayAbility_Execution)))
 		{
 			if (OutFailureReason)
@@ -1436,5 +1437,6 @@ FGameplayTagContainer UHeroExecutionCoordinatorComponent::BuildExecutionTargetCa
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_CombatModeOrDefense);
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_WeaponSwitch);
 	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_SpiritSkill);
+	AbilityTags.AddTag(ActionGameplayTags::Player_Ability_ProjectileSwitch);
 	return AbilityTags;
 }

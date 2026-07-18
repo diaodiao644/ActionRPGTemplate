@@ -1,4 +1,4 @@
-// 英雄战斗输入运行态组件实现。
+﻿// 英雄战斗输入运行态组件实现。
 
 #include "Components/Combat/HeroCombatInputComponent.h"
 
@@ -133,6 +133,23 @@ void UHeroCombatInputComponent::ClearBufferedInput()
 	InputRuntimeState.ClearBufferedInput();
 }
 
+void UHeroCombatInputComponent::ClearBufferedInputIfMatchesTag(const FGameplayTag& InputTag)
+{
+	if (!InputTag.IsValid() || !GetWorld())
+	{
+		return;
+	}
+
+	FActionBufferedInput BufferedInputSnapshot;
+	if (!InputRuntimeState.PeekBufferedInput(GetWorld()->GetTimeSeconds(), BufferedInputSnapshot)
+		|| BufferedInputSnapshot.InputTag != InputTag)
+	{
+		return;
+	}
+
+	ClearBufferedInput();
+}
+
 void UHeroCombatInputComponent::ClearBufferedWeaponSwitchInputIfAny()
 {
 	UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent();
@@ -198,8 +215,25 @@ bool UHeroCombatInputComponent::ConsumeBufferedInput()
 		return false;
 	}
 
+	if (LocalBufferedInput.InputTag == ActionGameplayTags::InputTag_GameplayAbility_Execution)
+	{
+		ClearBufferedInput();
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("[BufferedInput] Execution buffered replay discarded because execution is immediate-only. Input=%s Event=%d"),
+			*LocalBufferedInput.InputTag.ToString(),
+			static_cast<int32>(LocalBufferedInput.TriggerEvent));
+		return false;
+	}
+
 	if (!CombatComponent->CanConsumeBufferedInputNow(LocalBufferedInput))
 	{
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("%s"),
+			*CombatComponent->DescribeBufferedNonAttackReplayGateForDebug(LocalBufferedInput));
 		return false;
 	}
 
@@ -209,11 +243,21 @@ bool UHeroCombatInputComponent::ConsumeBufferedInput()
 	}
 
 	CombatComponent->BroadcastCombatEvent(ActionGameplayTags::Player_Event_InputBuffer_Consumed);
-	return CombatComponent->ProcessAbilityInput(
+	const bool bProcessed = CombatComponent->ProcessAbilityInput(
 		LocalBufferedInput.InputTag,
 		LocalBufferedInput.TriggerEvent,
 		false,
 		LocalBufferedInput.ResolvedAttackRequestTag);
+	if (!bProcessed)
+	{
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("[BufferedInput] Non-attack buffered replay reached formal activation but did not start. Input=%s Reason=check ASC relationship diagnostics or ability runtime precheck logs."),
+			*LocalBufferedInput.InputTag.ToString());
+	}
+
+	return bProcessed;
 }
 
 bool UHeroCombatInputComponent::HasValidBufferedInput() const
@@ -444,6 +488,8 @@ void UHeroCombatInputComponent::ReplayHeldInputsAfterCombatReact()
 		return;
 	}
 
+	// Execution 当前只认“本次 Pressed + 当前可处决”。
+	// 它不进入 Held 回放优先级，也不在恢复帧里自动补起手。
 	const TArray<FGameplayTag> HeldReplayPriority =
 	{
 		ActionGameplayTags::InputTag_GameplayAbility_Dodge,
@@ -461,6 +507,7 @@ void UHeroCombatInputComponent::ReplayHeldInputsAfterWeaponSwitch()
 		return;
 	}
 
+	// Execution 不参与切武收尾后的 Held 回放；处决机会只由当前按下瞬间决定。
 	const TArray<FGameplayTag> HeldReplayPriority =
 	{
 		ActionGameplayTags::InputTag_GameplayAbility_CombatModeOrDefense,

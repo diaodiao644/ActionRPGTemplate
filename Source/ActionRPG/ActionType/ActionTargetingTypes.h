@@ -27,23 +27,23 @@ struct FActionSimpleTurnAssistConfig
 
 public:
 	/** 当前这份一次性轻量转向辅助配置是否启用。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ToolTip = "当前这份一次性轻量转向辅助配置是否启用。关闭后攻击、处决或 Spirit Offensive 不会尝试自动朝向候选目标。"))
 	bool bEnabled = true;
 
 	/** 前向搜索距离。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "一次性轻量转向辅助的前向搜索距离。值越大，越容易吸到更远的候选目标；设为 0 或关闭时，这份配置不会被正式启用。"))
 	float SearchDistance = 240.f;
 
 	/** 搜索起点相对角色原点的高度偏移。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ToolTip = "搜索起点相对角色原点的高度偏移。可用于把搜索抬到胸口或视线附近；通常只在目标中心点明显高于地面时再调。"))
 	float SearchHeightOffset = 50.f;
 
 	/** 允许搜索目标时的左右半角。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ClampMin = "0.0", ClampMax = "180.0", UIMin = "0.0", UIMax = "180.0", ToolTip = "允许搜索候选目标时的左右半角。值越大，可接受的目标偏角越宽；若只希望轻量修正正前方目标，建议保持较小角度。"))
 	float MaxSearchHalfAngleDegrees = 70.f;
 
 	/** 扇形多射线搜索时，相邻两条射线之间的角度步进。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ClampMin = "0.1", ClampMax = "180.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TurnAssist", meta = (ClampMin = "0.1", ClampMax = "180.0", UIMin = "0.1", UIMax = "180.0", ToolTip = "扇形多射线搜索时，相邻两条射线之间的角度步进。值越小，搜索越细，但开销更高；通常不需要配得比 5 度更密。"))
 	float RayAngleStepDegrees = 5.f;
 
 public:
@@ -64,28 +64,36 @@ struct FActionSimpleTurnAssistDebugSnapshot
 	GENERATED_BODY()
 
 public:
+	/** 这次轻量转向辅助是否真的尝试过找目标。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	bool bAttempted = false;
 
+	/** 这次轻量转向辅助是否找到了满足条件的候选。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	bool bFoundCandidate = false;
 
+	/** 这次轻量转向辅助是否真的应用了朝向修正。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	bool bAppliedTurn = false;
 
+	/** 这次调试快照对应的正式触发来源。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	EActionSimpleTurnAssistTriggerSource TriggerSource =
 		EActionSimpleTurnAssistTriggerSource::Attack;
 
+	/** 这次轻量转向辅助最终命中的候选目标快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	TObjectPtr<AActor> TargetActor = nullptr;
 
+	/** 这次候选与角色之间的距离快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	float Distance = 0.f;
 
+	/** 这次候选与当前前向的夹角点积快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	float FacingDot = 0.f;
 
+	/** 这次候选与当前前向的角度快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TurnAssist")
 	float TargetAngleDegrees = 0.f;
 
@@ -129,35 +137,35 @@ struct FActionTargetLockConfig
 
 public:
 	/** 当前这份完整目标锁定配置是否启用。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ToolTip = "当前这份完整目标锁定配置是否启用。"))
 	bool bEnabled = true;
 
 	/** 获取锁定目标时的前向搜索距离。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "获取锁定目标时的前向搜索距离。它只影响首次找目标的范围，不决定锁定后的超距失锁阈值。"))
 	float AcquireSearchDistance = 900.f;
 
 	/** 获取锁定目标时的前向扫描球半径。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "获取锁定目标时的前向扫描球半径。值越大，越容易吸到侧前方目标；若误锁频繁，优先先收小这里而不是一味缩短锁定距离。"))
 	float AcquireSearchRadius = 120.f;
 
 	/** 获取锁定目标时的搜索高度偏移。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ToolTip = "获取锁定目标时的搜索高度偏移。通常用于把目标获取中心抬到胸口或视线附近。"))
 	float AcquireSearchHeightOffset = 50.f;
 
 	/** 获取锁定目标时允许的最大夹角。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", ClampMax = "180.0", UIMin = "0.0", UIMax = "180.0", ToolTip = "获取锁定目标时允许的最大夹角。值越大，越容易获取侧方目标；若锁定只应服务正前方战斗，建议保持中小角度。"))
 	float MaxAcquireAngleDegrees = 80.f;
 
 	/** 目标超出该距离后会正式失锁。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "目标超出该距离后会正式失锁。它应该大于或等于获取距离，否则会出现刚锁上就容易立刻丢锁的配置。"))
 	float BreakDistance = 1200.f;
 
 	/** 锁定期间角色朝向目标的插值速度。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "锁定期间角色朝向目标的插值速度。值越大，角色朝向跟随越紧；设为 0 会让角色几乎不主动转向目标。"))
 	float ActorYawInterpSpeed = 12.f;
 
 	/** 锁定期间控制器朝向目标的插值速度。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TargetLock", meta = (ClampMin = "0.0", UIMin = "0.0", ToolTip = "锁定期间控制器朝向目标的插值速度。通常与角色转向速度配套调整；若镜头跟随太慢或太硬，优先先调这里。"))
 	float ControllerYawInterpSpeed = 10.f;
 
 public:
@@ -181,21 +189,27 @@ struct FActionTargetLockDebugSnapshot
 	GENERATED_BODY()
 
 public:
+	/** 当前最近一次锁定快照里，正式锁定态是否仍有效。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TargetLock")
 	bool bLockActive = false;
 
+	/** 最近一次尝试获取锁定目标是否成功。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TargetLock")
 	bool bLastAcquireSucceeded = false;
 
+	/** 最近一次正式锁定或尝试锁定涉及到的目标快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TargetLock")
 	TObjectPtr<AActor> LockedTargetActor = nullptr;
 
+	/** 当前锁定目标距离快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TargetLock")
 	float Distance = 0.f;
 
+	/** 当前锁定目标与角色前向的点积快照。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TargetLock")
 	float FacingDot = 0.f;
 
+	/** 最近一次失锁或锁定失败时记录的高层原因。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TargetLock")
 	EActionTargetLockBreakReason BreakReason = EActionTargetLockBreakReason::None;
 

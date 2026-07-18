@@ -409,8 +409,7 @@ void UHeroAttackComponent::ApplyResolvedAttackExecutionState(const FActionResolv
 	// 新一段攻击真正开始前，先把上一段残留的衔接窗口和取消窗口收掉。
 	// 这样同一时刻只会存在当前这一段攻击自己的窗口状态，避免旧窗口跨段残留。
 	ConsumePreserveComboIndexOnNextAttackFinalize();
-	CombatComponent->CloseAbilityChainWindow();
-	CombatComponent->CloseAbilityCancelWindow();
+	CombatComponent->ClearAbilityWindowsForAuthoritativeTakeover();
 
 	if (InResolvedConfig.bResetComboIndexOnPlay)
 	{
@@ -819,7 +818,6 @@ void UHeroAttackComponent::FinalizeAttackExecutionRuntime(const bool bShouldRese
 	CombatComponent->SetAttackEnabled(true);
 	CombatComponent->ClearRunningAnimMontageReference();
 	CombatComponent->CloseAbilityChainWindow();
-	CombatComponent->CloseAbilityCancelWindow();
 	ClearCurrentAttackProjectileSpawnConfig();
 
 	if (bShouldResetComboIndexOnFinalizeIfNotChained
@@ -905,15 +903,15 @@ bool UHeroAttackComponent::CanActivateAttackInputNow(const FGameplayTag InputTag
 	}
 
 	const bool bWeaponSwitchAttackAllowedByChainWindow =
-		CombatComponent->IsWeaponSwitchPresentationChainInputAllowed(InputTag);
-	const bool bWeaponSwitchAttackAllowedByCancelWindow =
-		CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(InputTag);
+		CombatComponent->IsSpecialWeaponSwitchPresentationChainInputAllowed(InputTag);
+	const bool bWeaponSwitchAttackAllowedByInterruptWindow =
+		CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag);
 
-	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchPresentationActive())
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
 	{
-		if (!(bWeaponSwitchAttackAllowedByChainWindow || bWeaponSwitchAttackAllowedByCancelWindow))
+		if (!(bWeaponSwitchAttackAllowedByChainWindow || bWeaponSwitchAttackAllowedByInterruptWindow))
 		{
-			// 切武表现期默认阻断攻击，只有链窗或取消窗明确对白名单放行后才允许抢入。
+			// 切武表现期默认阻断攻击，只有链窗或主动 GA 抢断窗明确对白名单放行后才允许抢入。
 			return false;
 		}
 
@@ -937,9 +935,9 @@ bool UHeroAttackComponent::CanActivateAttackInputNow(const FGameplayTag InputTag
 
 	if (!CombatComponent->IsAttackEnabled())
 	{
-		// 普通攻击入口关闭时，只允许走“取消窗口里允许的攻击输入”这一条例外恢复链。
-		return CombatComponent->IsAbilityCancelContextActive()
-			&& CombatComponent->IsAbilityCancelInputAllowedNow(InputTag);
+		// 普通攻击入口关闭时，只允许走“当前输入改写上下文明确放行”的这条例外恢复链。
+		return CombatComponent->IsInputOverrideContextActive()
+			&& CombatComponent->IsInputAllowedByCurrentOverrideContext(InputTag);
 	}
 
 	return true;
@@ -956,7 +954,7 @@ bool UHeroAttackComponent::ShouldBufferAttackInputNow(const FGameplayTag& InputT
 		return false;
 	}
 
-	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchPresentationActive())
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
 	{
 		// 切武表现期里的攻击输入默认先缓冲。
 		// 后续既可能在切武链窗 / 取消窗开启时被立刻消费，
@@ -970,12 +968,12 @@ bool UHeroAttackComponent::ShouldBufferAttackInputNow(const FGameplayTag& InputT
 		return true;
 	}
 
-	if (CombatComponent->IsAbilityCancelContextActive())
+	if (CombatComponent->IsInputOverrideContextActive())
 	{
-		// 取消上下文里，关闭中的取消窗与“当前帧不接收这类取消输入”的情况都应先缓存，
+		// 输入改写上下文里，关闭中的抢断窗与“当前帧不接收这类抢入输入”的情况都应先缓存，
 		// 恢复链会在窗口合法时再次尝试消费，避免玩家提早输入被丢掉。
-		return !CombatComponent->AbilityWindowRuntimeState.IsAbilityCancelWindowActive()
-			|| CombatComponent->AbilityWindowRuntimeState.AcceptsCancelInput(InputTag);
+		return !CombatComponent->IsAbilityInterruptWindowActive()
+			|| CombatComponent->IsInputAllowedByCurrentOverrideContext(InputTag);
 	}
 
 	// 其余情况只要攻击总开关仍未恢复，就允许把这次输入先记下来。
@@ -1059,20 +1057,20 @@ bool UHeroAttackComponent::CanConsumeBufferedAttackInputNow(const FActionBuffere
 	}
 
 	const UHeroWeaponSwitchComponent* WeaponSwitchComponent = CombatComponent->GetOwningHeroWeaponSwitchComponent();
-	if (WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchPresentationActive())
+	if (WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive())
 	{
-		return CombatComponent->IsWeaponSwitchPresentationChainInputAllowed(BufferedInput.InputTag)
-			|| CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(BufferedInput.InputTag);
+		return CombatComponent->IsSpecialWeaponSwitchPresentationChainInputAllowed(BufferedInput.InputTag)
+			|| CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(BufferedInput.InputTag);
 	}
 
-	if (CombatComponent->IsAbilityCancelContextActive())
+	if (CombatComponent->IsInputOverrideContextActive())
 	{
-		// 取消上下文里的缓冲消费复用即时激活判断，确保恢复行为与实时输入走同一套门禁规则。
+		// 输入改写上下文里的缓冲消费复用即时激活判断，确保恢复行为与实时输入走同一套门禁规则。
 		return CanActivateAttackInputNow(BufferedInput.InputTag);
 	}
 	// 普通恢复场景下，只要攻击已重新开放且不处于切武演出期，就允许把缓冲输入重新投递。
 	return CombatComponent->IsAttackEnabled()
-		&& !(WeaponSwitchComponent && WeaponSwitchComponent->IsWeaponSwitchPresentationActive());
+		&& !(WeaponSwitchComponent && WeaponSwitchComponent->IsSpecialWeaponSwitchPresentationActive());
 }
 
 bool UHeroAttackComponent::TryConsumeBufferedAttackInput()
@@ -1404,6 +1402,35 @@ bool UHeroAttackComponent::TryHandleAttackInputByEvent(
 	return HandleAttackInput(InActionASC, InputTag, InputEvent, ResolvedAttackRequestTag);
 }
 
+bool UHeroAttackComponent::TryTriggerDefaultLightAttackAfterNormalWeaponSwitch(
+	UActionAbilitySystemComponent* InActionASC)
+{
+	UHeroCombatComponent* CombatComponent = GetOwningHeroCombatComponent();
+	if (!CombatComponent || !InActionASC)
+	{
+		return false;
+	}
+
+	const FGameplayTag AttackInputTag = ActionGameplayTags::InputTag_GameplayAbility_Attack;
+	if (!CanActivateAttackInputNow(AttackInputTag))
+	{
+		return false;
+	}
+
+	const FGameplayTag RoutedInputTag = ResolveScopedAttackAbilityInputTag(ActionGameplayTags::Attack_Request_Default);
+	if (!RoutedInputTag.IsValid())
+	{
+		return false;
+	}
+
+	// 普通切武后的轻攻击首段固定按“切武专用强制首段起手”处理：
+	// 1. 不再受默认轻攻击 Pressed / Released 配置影响；
+	// 2. 先明确回到首段索引，再正式进入当前武器的轻攻击 GA。
+	CombatComponent->ResetComboIndex();
+	CancelActiveAttackAbilityIfNeeded(InActionASC);
+	return InActionASC->OnAbilityInputPressed(RoutedInputTag);
+}
+
 bool UHeroAttackComponent::HandleAttackInput(
 	UActionAbilitySystemComponent* InActionASC,
 	FGameplayTag InputTag,
@@ -1476,24 +1503,16 @@ bool UHeroAttackComponent::HandleAttackInput(
 		return false;
 	}
 
-	const bool bAttackTriggeredFromCancelWindow =
-		CombatComponent->IsAbilityCancelContextActive()
-		&& CombatComponent->IsAbilityCancelInputAllowedNow(InputTag);
+	const bool bAttackTriggeredFromInterruptWindow =
+		CombatComponent->IsInputOverrideContextActive()
+		&& CombatComponent->IsInputAllowedByCurrentOverrideContext(InputTag);
 	const bool bAttackTriggeredFromWeaponSwitchPresentation =
-		CombatComponent->IsWeaponSwitchPresentationChainInputAllowed(InputTag)
-		|| CombatComponent->IsWeaponSwitchPresentationCancelInputAllowed(InputTag);
+		CombatComponent->IsSpecialWeaponSwitchPresentationChainInputAllowed(InputTag)
+		|| CombatComponent->IsSpecialWeaponSwitchPresentationInterruptInputAllowed(InputTag);
 
-	if (bAttackTriggeredFromCancelWindow || bAttackTriggeredFromWeaponSwitchPresentation)
+	if (bAttackTriggeredFromInterruptWindow || bAttackTriggeredFromWeaponSwitchPresentation)
 	{
-		// 攻击若从取消窗口或切武表现窗口抢入，
-		// 需要先把当前活动 Ability 正式结束，再提交新的 Attack。
-		// 否则 ASC 关系系统仍会看到旧 Ability 的 ActivationOwnedTags，
-		// 从而把这次攻击拦成“被活动 Ability 阻挡”。
-		InActionASC->CancelAbilityByAbilityTag(ActionGameplayTags::Player_Ability_Dodge);
-		InActionASC->CancelAbilityByAbilityTag(ActionGameplayTags::Player_Ability_CombatModeOrDefense);
-		InActionASC->CancelAbilityByAbilityTag(ActionGameplayTags::Player_Ability_WeaponSwitch);
-
-		Debug::Print(TEXT("[攻击] 抢占前先结束闪避/防御/切武，再提交攻击"), FColor::Yellow, 2.0f);
+		Debug::Print(TEXT("[攻击] 当前输入进入统一关系裁决链，由 ASC 决定是否取消旧主动 GA"), FColor::Yellow, 2.0f);
 	}
 
 	// 先把攻击请求映射到当前武器槽对应的攻击能力输入标签，再交给 ASC 激活。

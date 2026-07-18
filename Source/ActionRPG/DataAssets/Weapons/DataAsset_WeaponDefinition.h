@@ -58,6 +58,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SpiritAbility|Skill|Offensive|Projectile", meta = (EditCondition = "bExposeOffensiveFields && bShouldSpawnProjectile", EditConditionHides, ToolTip = "当前 SkillClip 额外生成发射物时使用的条目级 Spawn 配置。它只是静态桥接入口，真正解析与生成仍由攻击链执行。"))
 	FActionProjectileSpawnConfig ProjectileSpawnConfig;
 
+	/** 仅服务编辑器面板显隐：标记当前 SkillClip 是否应暴露 Offensive 专属字段，不作为正式资产入口。 */
 	UPROPERTY(Transient)
 	bool bExposeOffensiveFields = false;
 
@@ -164,9 +165,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SpiritAbility|Skill|Presentation", meta = (ToolTip = "这条 Spirit 技能可用的 SkillClip 静态模板列表。SelfEnhance 也可通过它承接表现蒙太奇；Offensive 则在此基础上继续读取命中、发射物与连段语义。"))
 	TArray<FActionSpiritSkillClipConfig> SkillClips;
 
+	/** 仅服务编辑器面板显隐：标记当前 SpiritSkillConfig 是否应暴露 SelfEnhance 专属字段，不作为正式资产入口。 */
 	UPROPERTY(Transient)
 	bool bExposeSelfEnhanceFields = false;
 
+	/** 仅服务编辑器面板显隐：标记当前 SpiritSkillConfig 是否应暴露 Offensive 专属字段，不作为正式资产入口。 */
 	UPROPERTY(Transient)
 	bool bExposeOffensiveFields = false;
 
@@ -459,7 +462,13 @@ public:
 
 /**
  * 武器定义资产。
- * 这里收口武器唯一标识、武器类别、运行时武器类、动画配置和命中配置。
+ * 这是武器唯一正式静态资产入口：
+ * 1. 顶层负责武器身份语义、类别语义、小类别语义与属性体系语义；
+ * 2. 中层负责动画、攻击条目、处决、发射物、Spirit 条目与装备属性等静态模板；
+ * 3. 公开查询口负责把静态模板解析成当前请求下的读取结果，编辑器工具口负责维护正式结构，不承接运行时状态。
+ *
+ * 这里回答的是“这把武器天生是什么、该怎么播、怎么打、怎么命中、怎么出弹、怎么切弹”；
+ * 它不回答“当前这次攻击已经解析成什么结果”“当前发射物实例飞到哪里”或“当前命中已经结算成什么”。
  */
 UCLASS(BlueprintType)
 class ACTIONRPG_API UDataAsset_WeaponDefinition : public UDataAsset
@@ -472,11 +481,11 @@ public:
 public:
 	// 运行时基础校验与分类查询：
 	// 这些接口主要给装备链、切武链和运行时防御性检查使用。
-	/** 校验当前武器定义是否满足运行时最小要求。 */
+	/** 校验当前武器定义是否满足运行时最小要求。它只检查静态资产是否合法，不读取角色或装备运行时。 */
 	UFUNCTION(BlueprintPure, Category = "WeaponDefinition")
 	bool IsValidDefinition() const;
 
-	/** 返回当前武器定义校验失败的具体原因。 */
+	/** 返回当前武器定义校验失败的具体原因。它是诊断字符串，不是新的资产状态。 */
 	UFUNCTION(BlueprintPure, Category = "WeaponDefinition")
 	FString DescribeValidationFailure() const;
 
@@ -484,7 +493,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "WeaponDefinition")
 	EHeroWeaponCategory GetWeaponCategory() const { return WeaponCategory; }
 
-	/** 解析这把武器当前最适合给日志或 UI 使用的名称。 */
+	/** 解析这把武器当前最适合给日志或 UI 使用的名称。它只服务显示，不参与正式武器身份判定。 */
 	UFUNCTION(BlueprintPure, Category = "WeaponDefinition")
 	FString ResolveDebugName() const;
 
@@ -528,7 +537,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "WeaponDefinition")
 	bool SupportsSpiritWeaponAbilities() const { return WeaponPropertyType == EActionWeaponPropertyType::Spirit; }
 
-	/** 读取 Spirit Ability 一体化条目集合。 */
+	/** 读取 Spirit Ability 一体化条目集合。返回的是静态资产模板，不是当前运行中的 Spirit 技能快照。 */
 	const TArray<FActionSpiritAbilityEntryConfig>& GetSpiritAbilityEntryConfigs() const { return SpiritAbilityEntryConfigs; }
 
 	/** 判断当前是否至少存在一条已配置的 Spirit Ability 条目。 */
@@ -537,43 +546,43 @@ public:
 	/** 判断当前是否至少存在一条已配置的 Spirit 主动技能条目。 */
 	bool HasAnySpiritSkillAbilityEntryConfigs() const;
 
-	/** 按输入标签解析当前武器的一条 Spirit Ability 条目。 */
+	/** 按输入标签解析当前武器的一条 Spirit Ability 条目。返回的是当前资产中读到的条目模板，不是 ASC 里已授予或已激活的运行时结果。 */
 	bool TryResolveSpiritAbilityEntryConfigByInputTag(
 		const FGameplayTag& InInputTag,
 		FActionSpiritAbilityEntryConfig& OutEntryConfig) const;
 
-	/** 读取武器动画配置。 */
+	/** 读取武器动画配置。返回的是正式静态模板，不是当前播放中的动画状态。 */
 	const FActionWeaponAnimationConfig& GetAnimationConfig() const { return AnimationConfig; }
 
-	/** 读取处决专用配置。 */
+	/** 读取处决专用配置。返回的是静态模板；真正哪次处决成立仍由处决主链决定。 */
 	const FActionExecutionConfig& GetExecutionConfig() const { return ExecutionConfig; }
 
-	/** 读取武器默认发射物配置。 */
+	/** 读取武器默认发射物配置。返回的是静态模板，不代表当前一定已经选中或生成了这套发射物。 */
 	const FActionProjectileConfig& GetDefaultProjectileConfig() const { return DefaultProjectileConfig; }
 
-	/** 读取处决专用命中配置。 */
+	/** 读取处决专用命中配置。它只是 ExecutionConfig 的静态子模板，不是命中解析结果。 */
 	const FActionExecutionHitConfig& GetExecutionHitConfig() const { return ExecutionConfig.HitConfig; }
 
-	/** 判断当前武器是否允许切换发射物。 */
-	UFUNCTION(BlueprintPure, Category = "WeaponDefinition|Projectile")
+	/** 判断当前武器是否允许切换发射物。它只回答资产层是否提供多套发射物模板，不表示运行时当前已切到哪套。 */
+	UFUNCTION(BlueprintPure, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "判断当前 WeaponDefinition 是否允许在默认发射物之外再提供多套可切换模板。它只描述静态资产能力，不表示运行时当前已选中了哪套发射物。"))
 	bool SupportsProjectileSwitching() const { return bSupportsProjectileSwitching; }
 
-	/** 按一次发射请求解析最终应使用的发射物配置。 */
+	/** 按一次发射请求解析最终应使用的发射物配置。返回的是本次读取到的解析结果，不会反向写回资产状态。 */
 	bool ResolveProjectileConfigForSpawn(
 		const FActionProjectileSpawnConfig& InSpawnConfig,
 		const FGameplayTag& InSelectedProjectileConfigTag,
 		FActionProjectileConfig& OutProjectileConfig,
 		EActionResolvedProjectileConfigSource* OutResolvedConfigSource = nullptr) const;
 
-	/** 直接按配置标签解析一条可切换发射物配置。 */
+	/** 直接按配置标签解析一条可切换发射物配置。它只读取静态模板，不代表运行时当前已选中这条配置。 */
 	bool ResolveSwitchableProjectileConfigByTag(
 		const FGameplayTag& InProjectileConfigTag,
 		FActionProjectileConfig& OutProjectileConfig) const;
 
-	/** 读取当前武器需要挂接的动画层。 */
+	/** 读取当前武器需要挂接的动画层。返回的是静态资源入口，不等于角色当前已经完成 LinkedLayer 切换。 */
 	TSubclassOf<UActionHeroLinkedAnimLayer> GetLinkedAnimLayerClass() const;
 
-	/** 按模板名解析命中窗口运行时配置。 */
+	/** 按模板名解析命中窗口运行时配置。返回的是给当前通知 / 运行时消费的解析结果，不会创建新的长期资产状态。 */
 	bool TryResolveHitWindowConfigByName(
 		FName InTemplateName,
 		FName InRuntimeWindowName,
@@ -581,30 +590,30 @@ public:
 
 	// 攻击链运行时解析入口：
 	// 攻击组件与攻击 GA 会通过这些接口把请求标签一路解析到分支、输入阶段和执行配置。
-	/** 按攻击请求标签解析最终攻击分支标签。 */
+	/** 按攻击请求标签解析最终攻击分支标签。返回的是当前资产中路由出的读取结果，不是运行时当前攻击阶段。 */
 	FGameplayTag ResolveAttackBranchTag(const FGameplayTag& InRequestTag) const;
 
-	/** 解析指定攻击请求真正应在哪个输入阶段出招。 */
+	/** 解析指定攻击请求真正应在哪个输入阶段出招。它只读静态条目，不替代输入运行态资格判断。 */
 	EActionInputEvent ResolveAttackTriggerInputEvent(const FGameplayTag& InRequestTag) const;
 
-	/** 按攻击请求标签与当前连段索引直接解析完整攻击执行计划。 */
+	/** 按攻击请求标签与当前连段索引直接解析完整攻击执行计划。返回的是本次可执行的静态读取结果，不是长期缓存。 */
 	bool TryResolveAttackExecutionConfigByRequestTag(
 		const FGameplayTag& InRequestTag,
 		int32 InComboIndex,
 		FActionResolvedAttackExecutionConfig& OutResolvedConfig) const;
 
-	/** 按攻击请求标签读取正式命中配置。 */
+	/** 按攻击请求标签读取正式命中配置。它只从条目模板里读取命中语义，不是本次命中的最终结算结果。 */
 	bool TryResolveAttackHitConfigByRequestTag(
 		const FGameplayTag& InRequestTag,
 		FActionWeaponHitConfig& OutHitConfig) const;
 
-	/** 按攻击分支标签与当前连段索引解析完整攻击执行计划。 */
+	/** 按攻击分支标签与当前连段索引解析完整攻击执行计划。返回的是静态执行模板的解析结果。 */
 	bool TryResolveAttackExecutionConfig(
 		const FGameplayTag& InBranchTag,
 		int32 InComboIndex,
 		FActionResolvedAttackExecutionConfig& OutResolvedConfig) const;
 
-	/** 读取指定攻击分支可用的蒙太奇数量。 */
+	/** 读取指定攻击分支可用的蒙太奇数量。它只反映当前资产模板里配置了多少段，不代表运行时当前能播多少段。 */
 	int32 GetAttackMontageCountForBranch(const FGameplayTag& InBranchTag) const;
 
 	/** 读取正式 Combat 表现过渡蒙太奇：Idle -> Combat 读取 Enter，Combat -> Idle 读取 Exit。 */
@@ -622,11 +631,6 @@ public:
 	/** 读取普通格挡受击蒙太奇。 */
 	UAnimMontage* GetBlockedHitAnimMontage() const;
 
-	/** 读取普通切武蒙太奇。 */
-	UAnimMontage* GetNormalWeaponSwitchMontage() const;
-	int32 GetNormalWeaponSwitchReactGuardThreshold() const;
-	const FActionWeaponHitConfig& GetNormalWeaponSwitchHitConfig() const;
-
 	/** 读取执行者侧处决蒙太奇。 */
 	UAnimMontage* GetExecutionMontage() const;
 
@@ -637,12 +641,12 @@ public:
 
 	// 编辑器攻击链整理工具：
 	// 这些接口用于新建或整理武器资产时快速补齐正式五请求攻击条目结构。
-	/** 重建推荐的正式攻击条目配置。 */
-	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Attack", meta = (DisplayName = "重建攻击条目默认值", ToolTip = "按当前五请求基线重建 AttackEntryConfigs。适合新建武器资产后的正式攻击入口初始化。"))
+	/** 重建推荐的正式攻击条目配置。它是编辑器维护工具，不参与运行时解析。 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Attack", meta = (DisplayName = "重建攻击条目默认值", ToolTip = "按当前五请求基线重建 AttackEntryConfigs。它是编辑器维护工具，适合新建武器资产后的正式攻击入口初始化，不参与运行时逻辑。"))
 	void ResetAttackEntryConfigsToDefault();
 
-	/** 一次性重建整套攻击配置。 */
-	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Attack", meta = (DisplayName = "重建整套攻击配置", ToolTip = "一次性重建正式 AttackEntryConfigs。适合先搭好当前武器的正式攻击条目结构。"))
+	/** 一次性重建整套攻击配置。它是编辑器重置型维护工具，不承担旧结构兼容壳职责。 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Attack", meta = (DisplayName = "重建整套攻击配置", ToolTip = "一次性重建正式 AttackEntryConfigs。它是编辑器重置型维护工具，适合先搭好当前武器的正式攻击条目结构。"))
 	void ResetAllAttackConfigsToDefault();
 
 	// 编辑器推荐预设与结构修复：
@@ -663,12 +667,12 @@ public:
 	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Preset", meta = (DisplayName = "套用混合推荐预设", ToolTip = "切换到近远程混合推荐模板，会重写类别、Tag、武器类，并清空现有动画引用后重建攻击链。"))
 	void ApplyRecommendedHybridPreset();
 
-	/** 按当前 WeaponCategory 一键套用推荐预设。 */
-	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Preset", meta = (DisplayName = "按当前类别套用推荐预设", ToolTip = "根据当前 WeaponCategory 套用对应推荐预设。注意：这属于重置型操作，会清空现有动画引用。"))
+	/** 按当前 WeaponCategory 一键套用推荐预设。它属于编辑器整体重置型维护工具，不参与运行时解析。 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Preset", meta = (DisplayName = "按当前类别套用推荐预设", ToolTip = "根据当前 WeaponCategory 套用对应推荐预设。注意：这属于编辑器整体重置型维护工具，会清空现有动画引用，不参与运行时解析。"))
 	void ApplyRecommendedPresetByCurrentCategory();
 
-	/** 基于当前类别补齐武器定义的最小正式结构，避免遗漏基础攻击链和武器类配置。 */
-	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Preset", meta = (DisplayName = "按当前类别修复定义结构", ToolTip = "保守补齐当前类别下的最小正式结构：整理攻击条目、补缺失的 Tag 和 WeaponActorClass，但不会清空你已经配好的动画。推荐优先用这个，而不是直接套重置型预设。"))
+	/** 基于当前类别补齐武器定义的最小正式结构，避免遗漏基础攻击链和武器类配置。它是编辑器修复工具，不是运行时回退链。 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Preset", meta = (DisplayName = "按当前类别修复定义结构", ToolTip = "保守补齐当前类别下的最小正式结构：整理攻击条目、补缺失的 Tag 和 WeaponActorClass，但不会清空你已经配好的动画。它是编辑器修复工具，不是运行时回退链。"))
 	void RepairDefinitionShellForCurrentCategory();
 
 	/** 按空手类别补齐武器定义的最小正式结构，不清空现有动画资源。 */
@@ -689,12 +693,12 @@ public:
 
 	// 编辑器校验入口：
 	// 配完武器资产后，优先用这组接口检查类别、Tag、攻击链结构和关键动画资源是否齐全。
-	/** 构建当前武器资产的编辑器校验报告。 */
-	UFUNCTION(BlueprintPure, Category = "WeaponDefinition|Validation", meta = (DisplayName = "构建武器资产校验报告", ToolTip = "返回当前 WeaponDefinition 的详细校验结果字符串。适合在编辑器工具蓝图或自定义面板中展示。"))
+	/** 构建当前武器资产的编辑器校验报告。它只服务维护与排错，不会修改当前资产或运行时状态。 */
+	UFUNCTION(BlueprintPure, Category = "WeaponDefinition|Validation", meta = (DisplayName = "构建武器资产校验报告", ToolTip = "返回当前 WeaponDefinition 的详细校验结果字符串。它只服务编辑器维护与排错展示，不会修改资产或运行时状态。"))
 	FString BuildEditorValidationReport() const;
 
-	/** 在日志中输出当前武器资产的编辑器校验报告。 */
-	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Validation", meta = (DisplayName = "校验并输出武器资产报告", ToolTip = "检查类别、Tag、武器类、攻击请求链、攻击分支链和关键动画资源，并把结果输出到日志。推荐每次改完攻击链后点一次。"))
+	/** 在日志中输出当前武器资产的编辑器校验报告。它只服务维护与排错，不参与运行时逻辑。 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category = "WeaponDefinition|Validation", meta = (DisplayName = "校验并输出武器资产报告", ToolTip = "检查类别、Tag、武器类、攻击请求链、攻击分支链和关键动画资源，并把结果输出到日志。它只服务编辑器维护与排错。"))
 	void ValidateAndLogWeaponDefinition() const;
 
 #if WITH_EDITOR
@@ -706,12 +710,12 @@ public:
 public:
 	// 核心数据入口：
 	// 这几项就是装备链与攻击链最终真正依赖的武器资产数据本体。
-	/** 武器唯一 GameplayTag。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition", meta = (ToolTip = "武器唯一标识标签。根标签必须与 WeaponCategory 匹配，例如近战武器应使用 Player.Weapon.Melee.*。"))
+	/** 武器唯一 GameplayTag。它表达武器静态身份语义，不是当前已装备结果。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition", meta = (ToolTip = "武器唯一标识标签。根标签必须与 WeaponCategory 匹配，例如近战武器应使用 Player.Weapon.Melee.*。它表达武器静态身份语义，不是当前已装备结果。"))
 	FGameplayTag WeaponTag;
 
-	/** 武器类别。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition", meta = (ToolTip = "武器所属类别。它决定该武器能进入哪个固定武器槽，也决定推荐预设与校验规则。"))
+	/** 武器类别。它回答这把武器属于哪一类，不回答运行时当前在谁手上。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition", meta = (ToolTip = "武器所属类别。它决定该武器能进入哪个固定武器槽，也决定推荐预设与校验规则；它是静态类别语义，不是运行时当前装备态。"))
 	EHeroWeaponCategory WeaponCategory = EHeroWeaponCategory::PureMelee;
 
 	/** 武器小类别标签。它决定当前武器的正式小类别语义和角色挂点映射。 */
@@ -730,28 +734,28 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Semantic", meta = (ToolTip = "元素武器的具体元素子类型标签，例如 Damage.Element.Fire。非元素武器不应配置。"))
 	FGameplayTag DamageElementTypeTag;
 
-	/** 运行时真正生成的武器 Actor 类型。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition", meta = (ToolTip = "运行时要实例化的武器 Actor 类。空手武器通常留空，其余类别一般都需要配置。"))
+	/** 运行时真正生成的武器 Actor 类型静态入口。它只提供实例化模板，不保存当前实例生命周期。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition", meta = (ToolTip = "运行时要实例化的武器 Actor 类静态入口。空手武器通常留空，其余类别一般都需要配置；它只提供实例化模板，不保存当前实例生命周期。"))
 	TSoftClassPtr<AHeroWeaponBase> WeaponActorClass;
 
-	/** 武器动画配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Animation", meta = (ToolTip = "武器所有常规动画资源入口。包括动画层、攻击请求路由、攻击分支蒙太奇、闪避、防御和特殊切武动画。"))
+	/** 武器动画与攻击请求路由静态总入口。它是正式静态模板集合，不是当前播放中的运行时快照。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Animation", meta = (ToolTip = "武器所有常规动画资源入口。它是正式静态模板集合，包括动画层、攻击请求路由、AttackEntryConfigs、攻击分支蒙太奇、闪避、防御和特殊切武动画，不是当前播放快照。"))
 	FActionWeaponAnimationConfig AnimationConfig;
 
-	/** 处决专用配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Execution", meta = (ToolTip = "正式处决配置。统一收口执行者处决蒙太奇、目标转向等待时长和处决专用 HitConfig。"))
+	/** 处决专用静态模板入口。它收口执行者处决演出与命中语义，不保存哪次处决当前已成立。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Execution", meta = (ToolTip = "正式处决配置静态模板。它统一收口执行者处决蒙太奇、目标转向等待时长和处决专用 HitConfig，但不保存哪次处决当前已成立。"))
 	FActionExecutionConfig ExecutionConfig;
 
-	/** 当前武器默认使用的发射物配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "远程或混合武器的默认发射物配置。当前阶段先作为统一数据入口与资源预热入口，不直接展开完整发射物系统。"))
+	/** 当前武器默认使用的发射物静态模板。它是默认资产入口，不是当前实例或当前已选结果。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "远程或混合武器的默认发射物静态模板。凡攻击段或 Spirit 段选择沿用武器默认发射物时，都会回到这里解析；它不是运行中的发射物实例，也不是当前已选结果快照。"))
 	FActionProjectileConfig DefaultProjectileConfig;
 
 	/** 当前武器是否允许在默认发射物之外切换到其它发射物配置。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "只有法杖类远程武器才允许开启。开启后当前武器会读取 SwitchableProjectileConfigs 作为可切换入口。"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "是否允许在 DefaultProjectileConfig 之外再提供多套可切换发射物模板。当前正式口径只建议法杖类远程武器开启；关闭时下面的可切换数组不应再配置。"))
 	bool bSupportsProjectileSwitching = false;
 
-	/** 法杖类远程武器可切换的发射物配置集合。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "只有法杖类远程武器才应配置。每条配置都需要唯一的 ProjectileConfigTag。"))
+	/** 法杖类远程武器可切换的发射物配置集合。它们都是静态模板，不是运行时当前选择快照。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Projectile", meta = (ToolTip = "武器可切换的发射物模板集合。只在 bSupportsProjectileSwitching 为 true 时才有正式意义；每条配置都必须提供当前武器内唯一的 ProjectileConfigTag。它们都是静态模板，不是运行时当前选择快照。"))
 	TArray<FActionSwitchableProjectileConfigEntry> SwitchableProjectileConfigs;
 
 	/**
@@ -759,11 +763,11 @@ public:
 	 * 当前第一阶段先把这组数据缓存到固定武器槽运行时状态中，
 	 * 后续再由伤害解析、角色面板与 UI 汇总统一消费。
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Attributes", meta = (ToolTip = "武器装入固定武器槽后提供的属性增量。当前版本先缓存到槽位运行时状态，不直接回写角色 AttributeSet。"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Attributes", meta = (ToolTip = "武器装入固定武器槽后提供的属性增量入口。数值加成类字段是正式资产配置；其中语义镜像和外部命中效果缓存字段会在运行时被顶层武器语义或装备效果组件回写，不应当作稳定资产入口。"))
 	FActionWeaponAttributeCacheData EquippedAttributeBonuses;
 
-	/** Spirit Ability 一体化正式条目集合。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Ability", meta = (ToolTip = "Spirit Ability 一体化正式条目集合。只有灵武器语义才应配置；每条条目同时承接输入、授予 Ability，与可选的 SpiritSkill 多段静态模板。"))
+	/** Spirit Ability 一体化正式条目集合。它们是灵武器静态模板入口，不是已授予或已激活快照。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WeaponDefinition|Ability", meta = (ToolTip = "Spirit Ability 一体化正式条目集合。它是灵武器的静态资产入口；每条条目同时承接输入、授予 Ability 与可选的 SpiritSkill 多段静态模板，不保存运行中的 Spirit 技能状态，也不是已授予或已激活快照。"))
 	TArray<FActionSpiritAbilityEntryConfig> SpiritAbilityEntryConfigs;
 
 private:
@@ -790,6 +794,6 @@ private:
 	/** 把正式攻击条目整理回当前固定五请求条目结构。 */
 	void NormalizeAttackConfigArrays();
 
-	/** 把 Spirit 条目的编辑器暴露标记同步到当前 EntryKind，避免面板长期显示错类别字段。 */
+	/** 把 Spirit 条目的编辑器暴露标记同步到当前 EntryKind，避免面板长期显示错类别字段。它只服务详情面板，不属于正式资产语义。 */
 	void SyncSpiritAbilityEditorExposureFlags();
 };

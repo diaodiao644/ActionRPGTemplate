@@ -17,8 +17,20 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "UObject/SoftObjectPath.h"
 
+#if WITH_EDITOR
+extern void RegisterActionCombatReactAssetAuditCommands();
+#endif
+
 namespace
 {
+#if WITH_EDITOR
+	const bool bActionCombatReactAssetAuditCommandsLinked = []()
+	{
+		RegisterActionCombatReactAssetAuditCommands();
+		return true;
+	}();
+#endif
+
     constexpr float ExecutionLockedCombatReactRetryDelay = 0.05f;
 
     bool ShouldCloseUnconsumedExecutionWindowAfterPoiseBreak(
@@ -783,7 +795,7 @@ void UActionCombatReactComponent::OpenCombatReactRecoveryCancelWindow()
 		return;
 	}
 
-	HeroCombatComponent->OpenAbilityCancelWindow(CombatReactConfig.RecoveryCancelInputTags);
+	HeroCombatComponent->OpenCombatReactRecoveryCancelWindow(CombatReactConfig.RecoveryCancelInputTags);
 }
 
 void UActionCombatReactComponent::CloseCombatReactRecoveryCancelWindow()
@@ -794,7 +806,7 @@ void UActionCombatReactComponent::CloseCombatReactRecoveryCancelWindow()
 		return;
 	}
 
-	HeroCombatComponent->CloseAbilityCancelWindow();
+	HeroCombatComponent->CloseCombatReactRecoveryCancelWindow();
 }
 
 void UActionCombatReactComponent::ResetActiveCombatReactRuntimeForExecutionVictimHandoff()

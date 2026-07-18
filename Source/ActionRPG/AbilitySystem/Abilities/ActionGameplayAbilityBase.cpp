@@ -17,6 +17,19 @@ namespace
 	{
 		return bValue ? TEXT("\u662f") : TEXT("\u5426");
 	}
+
+	FString DescribeAbilityBaseGameplayTagsForDebug(const FGameplayTagContainer& InTags)
+	{
+		return InTags.ToStringSimple();
+	}
+
+	const FActionAbilityCategoryRelationshipRule* FindAbilityBaseRelationshipRule(
+		const EActionAbilityCategory AbilityCategory)
+	{
+		static const FActionAbilityRelationshipMatrix Matrix =
+			FActionAbilityRelationshipMatrix::BuildDefaultHeroCombatMatrix();
+		return Matrix.FindRule(AbilityCategory);
+	}
 }
 
 UActionGameplayAbilityBase::UActionGameplayAbilityBase()
@@ -145,29 +158,9 @@ bool UActionGameplayAbilityBase::UsesAbilityRelationshipSystem() const
 	return bUseAbilityRelationshipSystem;
 }
 
-int32 UActionGameplayAbilityBase::GetAbilityPriority() const
+EActionAbilityCategory UActionGameplayAbilityBase::GetAbilityCategory() const
 {
-	return AbilityPriority;
-}
-
-bool UActionGameplayAbilityBase::CanBeInterruptedByHigherPriority() const
-{
-	return bCanBeInterruptedByHigherPriority;
-}
-
-bool UActionGameplayAbilityBase::CanBeInterruptedBySamePriority() const
-{
-	return bCanBeInterruptedBySamePriority;
-}
-
-bool UActionGameplayAbilityBase::CanInterruptLowerPriorityAbilities() const
-{
-	return bCanInterruptLowerPriorityAbilities;
-}
-
-bool UActionGameplayAbilityBase::CanInterruptSamePriorityAbilities() const
-{
-	return bCanInterruptSamePriorityAbilities;
+	return ResolveActionAbilityCategoryFromAbilityIdentityTags(AbilityTags);
 }
 
 bool UActionGameplayAbilityBase::AllowsActivationDuringRecoveryCancelWindow() const
@@ -259,87 +252,50 @@ bool UActionGameplayAbilityBase::IsProtectedByCombatReact(
 	return false;
 }
 
-bool UActionGameplayAbilityBase::CanInterruptLowerPriorityAbilitiesInCurrentReact(
-	const UActionCombatReactComponent* CombatReactComponent) const
-{
-	// 平时读取的是静态打断权限；
-	// 只有当受击规则明确要求“命中某种恢复态后覆盖打断权限”时，才临时切到动态覆写结果。
-	if (DoesCombatReactInterruptOverrideMatchCurrentState(CombatReactComponent))
-	{
-		return CanInterruptLowerPriorityAbilities();
-	}
-
-	return CanInterruptLowerPriorityAbilities();
-}
-
-bool UActionGameplayAbilityBase::CanInterruptSamePriorityAbilitiesInCurrentReact(
-	const UActionCombatReactComponent* CombatReactComponent) const
-{
-	if (DoesCombatReactInterruptOverrideMatchCurrentState(CombatReactComponent))
-	{
-		return CanInterruptSamePriorityAbilities();
-	}
-
-	return CanInterruptSamePriorityAbilities();
-}
-
-bool UActionGameplayAbilityBase::CanBeInterruptedByHigherPriorityInCurrentReact(
-	const UActionCombatReactComponent* CombatReactComponent) const
-{
-	if (DoesCombatReactInterruptOverrideMatchCurrentState(CombatReactComponent))
-	{
-		return CanBeInterruptedByHigherPriority();
-	}
-
-	return CanBeInterruptedByHigherPriority();
-}
-
-bool UActionGameplayAbilityBase::CanBeInterruptedBySamePriorityInCurrentReact(
-	const UActionCombatReactComponent* CombatReactComponent) const
-{
-	if (DoesCombatReactInterruptOverrideMatchCurrentState(CombatReactComponent))
-	{
-		return CanBeInterruptedBySamePriority();
-	}
-
-	return CanBeInterruptedBySamePriority();
-}
-
 const FGameplayTagContainer& UActionGameplayAbilityBase::GetAbilityIdentityTags() const
 {
 	return AbilityTags;
 }
 
-const FGameplayTagContainer& UActionGameplayAbilityBase::GetCancelAbilitiesWithTagsForRelationship() const
+bool UActionGameplayAbilityBase::UsesOnGivenActivationPolicy() const
 {
-	return CancelAbilitiesWithTag;
+	return ActivationPolicy == EActionAbilityActivationPolicy::OnGiven;
 }
 
-const FGameplayTagContainer& UActionGameplayAbilityBase::GetActivationBlockedTagsForRelationship() const
+bool UActionGameplayAbilityBase::HasBlueprintCanActivateOverride() const
 {
-	return ActivationBlockedTags;
+	return bHasBlueprintCanUse;
 }
 
-bool UActionGameplayAbilityBase::CanCancelAbilitiesWithTags(const FGameplayTagContainer& InAbilityTags) const
+bool UActionGameplayAbilityBase::UsesRetriggerInstancedAbility() const
 {
-	return CancelAbilitiesWithTag.Num() > 0 && CancelAbilitiesWithTag.HasAny(InAbilityTags);
+	return bRetriggerInstancedAbility;
 }
 
-bool UActionGameplayAbilityBase::IsBlockedByActivationOwnedTags(const FGameplayTagContainer& InActivationOwnedTags) const
+bool UActionGameplayAbilityBase::HasSourceOrTargetActivationTagRequirements() const
 {
-	return ActivationBlockedTags.Num() > 0 && ActivationBlockedTags.HasAny(InActivationOwnedTags);
+	return SourceRequiredTags.Num() > 0
+		|| SourceBlockedTags.Num() > 0
+		|| TargetRequiredTags.Num() > 0
+		|| TargetBlockedTags.Num() > 0;
 }
 
-const FGameplayTagContainer& UActionGameplayAbilityBase::GetActivationOwnedTagsForRelationship() const
+FString UActionGameplayAbilityBase::DescribeSourceAndTargetActivationTagRequirements() const
 {
-	return ActivationOwnedTags;
+	return FString::Printf(
+		TEXT("SourceRequired=%s SourceBlocked=%s TargetRequired=%s TargetBlocked=%s"),
+		*DescribeAbilityBaseGameplayTagsForDebug(SourceRequiredTags),
+		*DescribeAbilityBaseGameplayTagsForDebug(SourceBlockedTags),
+		*DescribeAbilityBaseGameplayTagsForDebug(TargetRequiredTags),
+		*DescribeAbilityBaseGameplayTagsForDebug(TargetBlockedTags));
 }
 
 bool UActionGameplayAbilityBase::ValidateRelationshipActivationPreconditions(FString& OutFailureReason)
 {
 	// 这是一层给子类追加“运行时依赖是否齐全”的补充入口。
 	// 它不替代 GAS 的激活检查，也不替代 ASC 的关系系统；
-	// 只负责把那些必须在关系取消前先知道的子类级前置条件，统一收成可读失败原因。
+	// 只负责把那些必须在关系取消前先知道的子类级前置条件，
+	// 统一收成可读失败原因，而不是再把输入层白名单或矩阵关系偷偷散回各个 GA 里各判一遍。
 	OutFailureReason.Reset();
 	return true;
 }
@@ -432,18 +388,31 @@ FString UActionGameplayAbilityBase::DescribeCombatReactActivationDecision(
 FString UActionGameplayAbilityBase::DescribeCombatReactInterruptDecision(
 	const UActionCombatReactComponent* CombatReactComponent) const
 {
+	const EActionAbilityCategory AbilityCategory = GetAbilityCategory();
+	const FActionAbilityCategoryRelationshipRule* RelationshipRule =
+		FindAbilityBaseRelationshipRule(AbilityCategory);
 	const bool bRuleMatched = DoesCombatReactRuleMatchCurrentState(CombatReactComponent);
 	const bool bOverridePermissions =
 		DoesCombatReactInterruptOverrideMatchCurrentState(CombatReactComponent);
+	if (!RelationshipRule)
+	{
+		return FString::Printf(
+			TEXT("\u6253\u65ad\u5224\u65ad\uff1a\u89c4\u5219\u547d\u4e2d=%s\uff0c\u8986\u76d6\u6743\u9650\u547d\u4e2d=%s\uff0c\u80fd\u529b\u7c7b\u522b=%s\uff0c\u77e9\u9635\u89c4\u5219=\u7f3a\u5931\u3002"),
+			*AbilityBaseBoolToDebugText(bRuleMatched),
+			*AbilityBaseBoolToDebugText(bOverridePermissions),
+			*ActionAbilityCategoryToString(AbilityCategory));
+	}
 
 	return FString::Printf(
-		TEXT("\u6253\u65ad\u5224\u65ad\uff1a\u89c4\u5219\u547d\u4e2d=%s\uff0c\u8986\u76d6\u6743\u9650\u547d\u4e2d=%s\uff0c\u53ef\u6253\u65ad\u4f4e\u4f18\u5148\u7ea7=%s\uff0c\u53ef\u6253\u65ad\u540c\u4f18\u5148\u7ea7=%s\uff0c\u53ef\u88ab\u66f4\u9ad8\u4f18\u5148\u7ea7\u6253\u65ad=%s\uff0c\u53ef\u88ab\u540c\u4f18\u5148\u7ea7\u6253\u65ad=%s\u3002"),
+		TEXT("\u6253\u65ad\u5224\u65ad\uff1a\u89c4\u5219\u547d\u4e2d=%s\uff0c\u8986\u76d6\u6743\u9650\u547d\u4e2d=%s\uff0c\u80fd\u529b\u7c7b\u522b=%s\uff0c\u77e9\u9635\u4f18\u5148\u7ea7=%d\uff0c\u53ef\u6253\u65ad\u4f4e\u4f18\u5148\u7ea7=%s\uff0c\u53ef\u6253\u65ad\u540c\u4f18\u5148\u7ea7=%s\uff0c\u53ef\u88ab\u66f4\u9ad8\u4f18\u5148\u7ea7\u6253\u65ad=%s\uff0c\u53ef\u88ab\u540c\u4f18\u5148\u7ea7\u6253\u65ad=%s\u3002"),
 		*AbilityBaseBoolToDebugText(bRuleMatched),
 		*AbilityBaseBoolToDebugText(bOverridePermissions),
-		*AbilityBaseBoolToDebugText(CanInterruptLowerPriorityAbilitiesInCurrentReact(CombatReactComponent)),
-		*AbilityBaseBoolToDebugText(CanInterruptSamePriorityAbilitiesInCurrentReact(CombatReactComponent)),
-		*AbilityBaseBoolToDebugText(CanBeInterruptedByHigherPriorityInCurrentReact(CombatReactComponent)),
-		*AbilityBaseBoolToDebugText(CanBeInterruptedBySamePriorityInCurrentReact(CombatReactComponent)));
+		*ActionAbilityCategoryToString(AbilityCategory),
+		RelationshipRule->Priority,
+		*AbilityBaseBoolToDebugText(RelationshipRule->bCanInterruptLowerPriorityAbilities),
+		*AbilityBaseBoolToDebugText(RelationshipRule->bCanInterruptSamePriorityAbilities),
+		*AbilityBaseBoolToDebugText(RelationshipRule->bCanBeInterruptedByHigherPriority),
+		*AbilityBaseBoolToDebugText(RelationshipRule->bCanBeInterruptedBySamePriority));
 }
 
 void UActionGameplayAbilityBase::OnGiveAbility(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec)
@@ -539,6 +508,100 @@ bool UActionGameplayAbilityBase::CheckCooldown(
 	}
 
 	return false;
+}
+
+bool UActionGameplayAbilityBase::CheckPreCancelResourcePreconditions(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	FGameplayTagContainer CooldownFailureTags;
+	const bool bCooldownPassed = CheckCooldown(
+		Handle,
+		ActorInfo,
+		OptionalRelevantTags ? &CooldownFailureTags : nullptr);
+	if (!bCooldownPassed && OptionalRelevantTags)
+	{
+		OptionalRelevantTags->AppendTags(CooldownFailureTags);
+	}
+
+	FGameplayTagContainer CostFailureTags;
+	const bool bCostPassed = CheckCost(
+		Handle,
+		ActorInfo,
+		OptionalRelevantTags ? &CostFailureTags : nullptr);
+	if (!bCostPassed && OptionalRelevantTags)
+	{
+		OptionalRelevantTags->AppendTags(CostFailureTags);
+	}
+
+	return bCooldownPassed && bCostPassed;
+}
+
+void UActionGameplayAbilityBase::GetPredictedOwnedTagsToReleaseOnRelationshipCancel(
+	FGameplayTagContainer& OutOwnedTags) const
+{
+	OutOwnedTags.AppendTags(ActivationOwnedTags);
+}
+
+bool UActionGameplayAbilityBase::CheckPredictiveFinalActivationTagGateAgainstOwnedTags(
+	const FGameplayTagContainer& PredictedOwnedTags,
+	FString& OutFailureReason,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	OutFailureReason.Reset();
+	if (OptionalRelevantTags)
+	{
+		OptionalRelevantTags->Reset();
+	}
+
+	FGameplayTagContainer MissingRequiredTags;
+	for (const FGameplayTag& RequiredTag : ActivationRequiredTags)
+	{
+		if (RequiredTag.IsValid() && !PredictedOwnedTags.HasTag(RequiredTag))
+		{
+			MissingRequiredTags.AddTag(RequiredTag);
+		}
+	}
+
+	if (MissingRequiredTags.Num() > 0)
+	{
+		if (OptionalRelevantTags)
+		{
+			OptionalRelevantTags->AppendTags(MissingRequiredTags);
+		}
+
+		OutFailureReason = FString::Printf(
+			TEXT("predictive owner tag gate failed because required owner tags would still be missing. Ability=%s MissingRequiredTags=%s"),
+			*GetAbilityDebugName(),
+			*DescribeAbilityBaseGameplayTagsForDebug(MissingRequiredTags));
+		return false;
+	}
+
+	FGameplayTagContainer BlockingTags;
+	for (const FGameplayTag& BlockingTag : ActivationBlockedTags)
+	{
+		if (BlockingTag.IsValid() && PredictedOwnedTags.HasTag(BlockingTag))
+		{
+			BlockingTags.AddTag(BlockingTag);
+		}
+	}
+
+	if (BlockingTags.Num() > 0)
+	{
+		if (OptionalRelevantTags)
+		{
+			OptionalRelevantTags->AppendTags(BlockingTags);
+		}
+
+		OutFailureReason = FString::Printf(
+			TEXT("predictive owner tag gate failed because blocked owner tags would still remain. Ability=%s BlockingTags=%s"),
+			*GetAbilityDebugName(),
+			*DescribeAbilityBaseGameplayTagsForDebug(BlockingTags));
+		return false;
+	}
+
+	return true;
 }
 
 void UActionGameplayAbilityBase::ApplyCooldown(

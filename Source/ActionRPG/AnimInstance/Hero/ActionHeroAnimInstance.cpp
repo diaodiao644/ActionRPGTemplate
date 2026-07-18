@@ -60,7 +60,7 @@ void UActionHeroAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			bShouldUseWeaponLinkedLayer = HeroCombatComponent->HasEquippedWeaponLinkedLayerPresentation();
 			CurrentWeaponTag = HeroCombatComponent->GetCurrentEquippedWeaponTag();
 			CurrentWeaponLinkedLayerClass = HeroCombatComponent->GetCurrentWeaponLinkedAnimLayerClass();
-			const bool bWeaponSwitchPresentationActive = HeroCombatComponent->IsWeaponSwitchPresentationActive();
+			const bool bWeaponSwitchPresentationActive = HeroCombatComponent->IsSpecialWeaponSwitchPresentationActive();
 			const bool bCombatModeTransitionActive = HeroCombatComponent->IsCombatModeTransitionPresentationActive();
 
 			if (OwningHeroController)

@@ -21,6 +21,7 @@ DECLARE_MULTICAST_DELEGATE(FOnHeroLoadoutUIStateChanged);
  * 英雄装备域启动/预热状态机与 UI 快照桥组件。
  * 负责 startup prewarm 正式状态、统一 UI 广播和槽位/根快照构建。
  * 它只桥接 runtime / equipment / context 三个宿主当前结果，不反向成为资源链或正式装备态宿主。
+ * `StartupRuntimeState` 才是 startup 查询的正式状态源；UI snapshot 和 progress 只读消费这份状态与外部结果。
  * 后续若继续优化，只收它对 Equipment 内部运行态的直接读取耦合，不再拆成 startup / UI 两个宿主。
  */
 UCLASS(ClassGroup = (Action), meta = (BlueprintSpawnableComponent))
@@ -35,10 +36,10 @@ public:
 	/** 启动装备域 startup prewarm 流程。它只进入启动状态机，不直接持有资源加载或装备写回。 */
 	bool InitializeWeaponLoadoutStartup(EHeroWeaponLoadoutSlot InSpawnLoadoutSlot);
 
-	/** 基于既有固定槽配置重启 startup prewarm，用于启动失败后的手动重试。 */
+	/** 基于既有固定槽配置重启 startup prewarm，用于启动失败后的手动重试。它是恢复入口，不是新的启动状态源。 */
 	bool RetryWeaponLoadoutStartup();
 
-	/** 构建单个固定槽位的 UI 只读快照。它只聚合 Equipment / Runtime / Context 当前结果。 */
+	/** 构建单个固定槽位的 UI 只读快照。它只聚合 Equipment / Runtime / Context 当前结果，不反向驱动业务状态。 */
 	bool BuildLoadoutSlotUISnapshot(
 		EHeroWeaponLoadoutSlot InLoadoutSlot,
 		FHeroWeaponLoadoutSlotUISnapshot& OutSnapshot) const;
@@ -46,7 +47,7 @@ public:
 	/** 构建装备域根 UI 快照。它只服务 UI 展示，不反向驱动装备域状态。 */
 	void BuildEquipmentLoadoutUISnapshot(FHeroWeaponLoadoutUISnapshot& OutSnapshot) const;
 
-	/** startup ready 广播：只表示启动链已进入可操作状态。 */
+	/** startup ready 广播：只表示启动链已进入可操作状态，外部仍应按正式查询口读取具体结果快照。 */
 	FOnHeroWeaponLoadoutStartupReady& OnWeaponLoadoutStartupReady() { return WeaponLoadoutStartupReadyDelegate; }
 	/** startup failed 广播：只同步失败槽位和诊断文本。 */
 	FOnHeroWeaponLoadoutStartupFailed& OnWeaponLoadoutStartupFailed() { return WeaponLoadoutStartupFailedDelegate; }
@@ -73,31 +74,31 @@ public:
 	/** 查询指定槽位是否仍处于 startup prewarm 待完成集合中。 */
 	bool IsLoadoutSlotStartupPrewarmPending(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
-	/** startup 进行中时响应槽位定义变化，刷新 pending prewarm 计数。 */
+	/** startup 进行中时响应槽位定义变化，刷新 pending prewarm 计数。它只维护状态机计数，不直接推进定义加载。 */
 	void HandleLoadoutSlotDefinitionChanged(EHeroWeaponLoadoutSlot InLoadoutSlot, bool bHasAssignedWeaponDefinition);
 
-	/** 标记一个槽位 startup prewarm 已完成，并尝试推进整体 startup 收尾。 */
+	/** 标记一个槽位 startup prewarm 已完成，并尝试推进整体 startup 收尾。它只消耗 pending 集合，不负责正式装备写回。 */
 	void MarkLoadoutSlotStartupPrewarmCompleted(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
 	/** 将 startup 状态机切入失败态并广播失败原因。它不回滚 runtime 或 equipment 结果。 */
 	void FailWeaponLoadoutStartup(EHeroWeaponLoadoutSlot InLoadoutSlot, const FString& InFailureReason);
 
-	/** 在所有 pending 槽位完成后验证出生槽与当前装备态，并尝试切入 Ready。 */
+	/** 在所有 pending 槽位完成后验证出生槽与当前装备态，并尝试切入 Ready。它只做 startup 收尾，不重建资源链。 */
 	void TryFinishWeaponLoadoutStartup();
 
 	/** 广播 UI 快照需要刷新。它只是 UI 脏标记，不表示装备状态必然变化。 */
 	void BroadcastLoadoutUIStateChanged() const;
 
-	/** 重置 startup 运行态和组件缓存。 */
+	/** 重置 startup 运行态和组件缓存。它只回零状态机与本地缓存，不替代 runtime/equipment 的收尾。 */
 	void ResetRuntimeStateForHeroStartup();
 
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 protected:
-	/** 缓存读取当前角色宿主。 */
+	/** 缓存读取当前角色宿主。它只是 startup/UI 正式宿主解析入口。 */
 	AActionHeroCharacter* GetOwningHeroCharacter() const;
-	/** 缓存读取正式装备态宿主。 */
+	/** 缓存读取正式装备态宿主。UI 快照读取当前装备结果仍通过它完成。 */
 	UHeroEquipmentComponent* GetOwningHeroEquipmentComponent() const;
 	/** 缓存读取发射物标签 / 属性缓存上下文宿主。 */
 	UHeroLoadoutContextComponent* GetOwningHeroLoadoutContextComponent() const;
@@ -110,10 +111,10 @@ protected:
 	/** 把指定槽位加入 startup prewarm 待完成集合。 */
 	void MarkLoadoutSlotStartupPrewarmPending(EHeroWeaponLoadoutSlot InLoadoutSlot);
 
-	/** 重新启动 startup prewarm，负责四槽校验、pending 标记和 runtime 预热请求调度。 */
+	/** 重新启动 startup prewarm，负责四槽校验、pending 标记和 runtime 预热请求调度。它不创造新的 runtime 状态源。 */
 	bool RestartWeaponLoadoutStartup(EHeroWeaponLoadoutSlot InSpawnLoadoutSlot, bool bReleaseExistingAsyncHandles);
 
-	/** 构建 startup 失败诊断文本。它只服务日志和失败原因，不参与业务判定。 */
+	/** 构建 startup 失败诊断文本。它只服务日志和失败原因，不参与业务判定，也不替代失败状态本身。 */
 	FString BuildLoadoutSlotStartupDebugContext(EHeroWeaponLoadoutSlot InLoadoutSlot) const;
 
 	/** 广播 startup ready，不附带额外业务写回。 */
@@ -122,8 +123,8 @@ protected:
 	void BroadcastWeaponLoadoutStartupFailed(EHeroWeaponLoadoutSlot InLoadoutSlot, const FString& InFailureReason) const;
 
 protected:
+	/** 当前 startup prewarm 正式状态源。所有 ready/in-progress/failed 查询最终都应回到这份状态。 */
 	UPROPERTY()
-	/** 当前 startup prewarm 正式状态源。 */
 	FHeroWeaponLoadoutStartupRuntimeState StartupRuntimeState;
 
 private:

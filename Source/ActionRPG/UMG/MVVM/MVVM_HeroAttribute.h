@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+﻿// 文件说明：声明英雄属性 HUD 只读 ViewModel。
 
 #pragma once
 
@@ -16,8 +16,10 @@ class ACTIONRPG_API UMVVM_HeroAttribute : public UMVVMViewModelBase
 public:
 	UMVVM_HeroAttribute();
 
+	/** 按当前值和上限换算显示用结果。只服务 HUD 展示，不是属性计算公式权威入口。 */
 	float CalculationRegenRate(float InValue, float InMaxValue);
 
+	/** 以下 getter 返回的都是 HUD 当前显示快照，不是正式属性状态源。 */
 	float GetHealth() const { return Health; }
 	float GetMaxHealth() const { return MaxHealth; }
 	float GetHealthRegenRate() const { return HealthRegenRate; }
@@ -32,43 +34,44 @@ public:
 	float GetMaxEnergy() const { return MaxEnergy; }
 	float GetEnergyRegenRate() const { return EnergyRegenRate; }
 
-	// 初始化函数，在HUD中进行创建并初始化，传入属性组件指针，绑定属性变化的回调函数等
+	/** 绑定 HeroAttributeComponent，并开始消费属性广播。它只建立 HUD 消费链绑定关系，不创造新的属性状态。 */
 	void InitMVVMWithHeroAttributeSet(UHeroAttributeComponent* HeroAttributeSet);
+	/** 解绑当前属性广播桥。 */
 	void UninitializeMVVM();
 
-	// 属性变化的回调函数，参数为属性类、旧值、新值
+	/** 消费属性变化广播并刷新当前 ViewModel 快照。这里维护的是显示快照，不是正式属性本体。 */
 	void OnHeroAttributeChange(FGameplayAttribute ChangedAttribute, float OldValue, float NewValue);
 
 	virtual void BeginDestroy() override;
 
 protected:
-
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	/** 以下字段都是 UI 层显示快照，通过属性广播桥刷新。 */
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的生命值快照。它只消费属性广播结果，不是正式属性本体。"))
 	float Health;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的最大生命值快照。"))
 	float MaxHealth;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的生命恢复展示值。它只服务显示换算。"))
 	float HealthRegenRate;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的护盾值快照。"))
 	float Shield;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的护盾百分比快照。"))
 	float ShieldPercent;
 
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的体力值快照。"))
 	float Stamina;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的最大体力值快照。"))
 	float MaxStamina;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的体力恢复展示值。它只服务显示换算。"))
 	float StaminaRegenRate;
 
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的能量值快照。"))
 	float Energy;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的最大能量值快照。"))
 	float MaxEnergy;
-	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter)
+	UPROPERTY(BlueprintReadOnly, Category = "MVVM|HeroAttribute", FieldNotify, Getter, meta = (ToolTip = "HUD 当前显示用的能量恢复展示值。它只服务显示换算。"))
 	float EnergyRegenRate;
 
 private:
+	/** 当前绑定的属性桥组件引用。它只是消费链绑定关系，不是属性宿主或属性缓存本体。 */
 	TWeakObjectPtr<UHeroAttributeComponent> HeroAttributeSetPtr = nullptr;
-
 };
